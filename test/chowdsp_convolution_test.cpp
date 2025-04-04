@@ -309,13 +309,11 @@ struct ConvolutionEngine
     std::vector<Convolution_Internal_Buffer> buffersInputSegments, buffersImpulseSegments;
 };
 
-std::vector<float> generate (size_t N)
+std::vector<float> generate (size_t N, std::mt19937& rng)
 {
     std::vector<float> data {};
     data.resize (N);
 
-    std::random_device rd {};
-    std::mt19937 rng { rd() };
     std::uniform_real_distribution<float> dist { -1.0f, 1.0f };
     for (auto& x : data)
         x = dist (rng);
@@ -328,8 +326,9 @@ int main()
     static constexpr int block_size = 512;
     static constexpr int num_blocks = 20;
 
-    const auto ir = generate (6000);
-    const auto input = generate (block_size * num_blocks);
+    std::mt19937 rng { 0x12345 };
+    const auto ir = generate (6000, rng);
+    const auto input = generate (block_size * num_blocks, rng);
     std::vector<float> ref_output (input.size());
 
     ConvolutionEngine reference_engine { ir.data(), ir.size(), block_size };

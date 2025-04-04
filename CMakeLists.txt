@@ -2,7 +2,7 @@ cmake_minimum_required(VERSION 3.20)
 project(chowdsp_convolution)
 
 if(NOT TARGET chowdsp_fft)
-    message(STATUS "Downloading chowdsp_fft with CPM")
+    message(STATUS "Using chowdsp_fft from CPM")
     include(cmake/CPM.cmake)
     unset(JUCE_MODULES_DIR CACHE) # this causes problems with the tests CMake config?
     CPMAddPackage("gh:Chowdhury-DSP/chowdsp_fft#main")

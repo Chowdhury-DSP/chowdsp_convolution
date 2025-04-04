@@ -36,10 +36,10 @@ void create_state (const Config* config, State* state, const float* ir, int ir_n
 
     const auto segment_num_samples = config->fft_size;
     state->num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
-    state_bytes_needed += (segment_num_samples + state->num_segments) * sizeof (float);
+    state_bytes_needed += segment_num_samples * state->num_segments * sizeof (float);
 
     state->input_num_segments = config->block_size > 128 ? state->num_segments : 3 * state->num_segments;
-    state_bytes_needed += (segment_num_samples + state->input_num_segments) * sizeof (float);
+    state_bytes_needed += segment_num_samples * state->input_num_segments * sizeof (float);
 
     state_bytes_needed += config->fft_size * sizeof (float); // fft scratch
     state_bytes_needed += config->fft_size * sizeof (float); // input data
@@ -101,6 +101,11 @@ void reset (const Config* config, State* state)
     memset (state->input_segments,
             0,
             segment_num_samples * state->input_num_segments * sizeof (float));
+
+    memset(state->input_data, 0, config->fft_size * sizeof(float));
+    memset(state->output_data, 0, config->fft_size * sizeof(float));
+    memset(state->output_temp_data, 0, config->fft_size * sizeof(float));
+    memset(state->overlap_data, 0, config->fft_size * sizeof(float));
 }
 
 void process_samples (const Config* config,
@@ -147,6 +152,7 @@ void process_samples (const Config* config,
 
                 const auto* input_segment = state->input_segments + segment_num_samples * index;
                 const auto* ir_segment = state->impulse_segments + segment_num_samples * seg_idx;
+                // memset (state->output_temp_data, 0, config->fft_size * sizeof (float));
                 fft::fft_convolve_unordered (config->fft,
                                              input_segment,
                                              ir_segment,

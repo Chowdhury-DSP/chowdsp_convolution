@@ -12,7 +12,7 @@ add_executable(chowdsp_convolution_test chowdsp_convolution_test.cpp)
 target_link_libraries(chowdsp_convolution_test
     # juce::juce_dsp
     juce::juce_audio_basics
-    juce::juce_audio_utils
+    juce::juce_audio_formats
     chowdsp::chowdsp_buffers
     chowdsp_fft_juce
     chowdsp_convolution

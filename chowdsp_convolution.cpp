@@ -102,10 +102,10 @@ void reset (const Config* config, State* state)
             0,
             segment_num_samples * state->input_num_segments * sizeof (float));
 
-    memset(state->input_data, 0, config->fft_size * sizeof(float));
-    memset(state->output_data, 0, config->fft_size * sizeof(float));
-    memset(state->output_temp_data, 0, config->fft_size * sizeof(float));
-    memset(state->overlap_data, 0, config->fft_size * sizeof(float));
+    memset (state->input_data, 0, config->fft_size * sizeof (float));
+    memset (state->output_data, 0, config->fft_size * sizeof (float));
+    memset (state->output_temp_data, 0, config->fft_size * sizeof (float));
+    memset (state->overlap_data, 0, config->fft_size * sizeof (float));
 }
 
 void process_samples (const Config* config,
@@ -139,6 +139,7 @@ void process_samples (const Config* config,
                                       fft::FFT_FORWARD);
 
         // Complex multiplication
+        const auto fft_inv_scale = 1.0f / static_cast<float> (config->fft_size);
         if (input_data_was_empty)
         {
             memset (state->output_temp_data, 0, config->fft_size * sizeof (float));
@@ -156,7 +157,7 @@ void process_samples (const Config* config,
                                              input_segment,
                                              ir_segment,
                                              state->output_temp_data,
-                                             1.0f);
+                                             fft_inv_scale);
             }
         }
 
@@ -166,18 +167,24 @@ void process_samples (const Config* config,
                                      input_segment_data,
                                      state->impulse_segments,
                                      state->output_data,
-                                     1.0f);
+                                     fft_inv_scale);
         fft::fft_transform_unordered (config->fft,
                                       state->output_data,
                                       state->output_data,
                                       fft_scratch,
                                       fft::FFT_BACKWARD);
-        const auto fft_inv_scale = 1.0f / static_cast<float> (config->fft_size);
-        for (int i = 0; i < config->fft_size; ++i)
-            state->output_data[i] *= fft_inv_scale;
 
-        // Add overlap (TODO: SIMD)
-        for (int i = 0; i < samples_to_process; ++i)
+        // Add overlap
+        // const auto vec_width_x2 = 2 * fft::fft_simd_width_bytes (config->fft) / (int) sizeof (float);
+        // const auto n_samples_vec = (samples_to_process / vec_width_x2) * vec_width_x2;
+        // fft::fft_accumulate (config->fft,
+        //                      state->output_data + state->input_data_pos,
+        //                      state->overlap_data + state->input_data_pos,
+        //                      output + num_samples_processed,
+        //                      n_samples_vec);
+        // for (int i = n_samples_vec; i < samples_to_process; ++i) // extra data that can't be SIMD-ed
+        //     output[num_samples_processed + i] = state->output_data[state->input_data_pos + i] + state->overlap_data[state->input_data_pos + i];
+        for (int i = 0; i < samples_to_process; ++i) // extra data that can't be SIMD-ed
             output[num_samples_processed + i] = state->output_data[state->input_data_pos + i] + state->overlap_data[state->input_data_pos + i];
 
         // Input buffer full => Next block
@@ -191,8 +198,15 @@ void process_samples (const Config* config,
             state->input_data_pos = 0;
 
             // Extra step for segSize > blockSize
-            for (int i = 0; i < config->fft_size - 2 * config->block_size; ++i)
-                state->output_data[config->block_size + i] += state->overlap_data[config->block_size + i];
+            const auto extra_block_samples = config->fft_size - 2 * config->block_size;
+            if (extra_block_samples > 0)
+            {
+                fft::fft_accumulate (config->fft,
+                                     state->overlap_data + config->block_size,
+                                     state->output_data + config->block_size,
+                                     state->output_data + config->block_size,
+                                     extra_block_samples);
+            }
 
             // Save the overlap
             memcpy (state->overlap_data,

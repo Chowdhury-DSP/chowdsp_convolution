@@ -327,7 +327,7 @@ int main()
     static constexpr int num_blocks = 20;
 
     std::mt19937 rng { 0x12345 };
-    const auto ir = generate (6000, rng);
+    auto ir = generate (6000, rng);
     const auto input = generate (block_size * num_blocks, rng);
     std::vector<float> ref_output (input.size());
 
@@ -361,6 +361,17 @@ int main()
 
     chowdsp::convolution::destroy_state (&conv_state);
     chowdsp::convolution::destroy_config (&conv_config);
+
+    float error_accum {};
+    for (int i = 0; i < test_output.size(); ++i)
+    {
+        const auto ref = ref_output[i];
+        const auto test = test_output[i];
+        const auto err = ref - test;
+        error_accum += err * err;
+    }
+    const auto mse = error_accum / static_cast<float> (test_output.size());
+    std::cout << "Mean-squared error: " << mse << '\n';
 
     return 0;
 }

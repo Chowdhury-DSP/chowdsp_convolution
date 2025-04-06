@@ -62,7 +62,7 @@ void create_state (const Config* config, State* state, const float* ir, int ir_n
 
         memcpy (segment,
                 ir + current_ptr,
-                std::min (config->fft_size - config->block_size, ir_num_samples - current_ptr));
+                std::min (config->fft_size - config->block_size, ir_num_samples - current_ptr) * sizeof (float));
         fft::fft_transform_unordered (config->fft,
                                       segment,
                                       segment,
@@ -144,7 +144,7 @@ void process_samples (const Config* config,
             memset (state->output_temp_data, 0, config->fft_size * sizeof (float));
 
             auto index = state->current_segment;
-            for (int seg_idx = 0; seg_idx < state->num_segments; ++seg_idx)
+            for (int seg_idx = 1; seg_idx < state->num_segments; ++seg_idx)
             {
                 index += index_step;
                 if (index >= state->input_num_segments)
@@ -152,7 +152,6 @@ void process_samples (const Config* config,
 
                 const auto* input_segment = state->input_segments + segment_num_samples * index;
                 const auto* ir_segment = state->impulse_segments + segment_num_samples * seg_idx;
-                // memset (state->output_temp_data, 0, config->fft_size * sizeof (float));
                 fft::fft_convolve_unordered (config->fft,
                                              input_segment,
                                              ir_segment,

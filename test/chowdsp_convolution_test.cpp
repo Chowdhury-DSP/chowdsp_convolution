@@ -354,15 +354,15 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     chowdsp::convolution::create_config (&conv_config, block_size);
     auto* fft_scratch = (float*) chowdsp::fft::aligned_malloc (conv_config.fft_size * sizeof (float));
 
-    chowdsp::convolution::IR_State ir_state {};
-    chowdsp::convolution::create_ir_state (&conv_config,
-                                           &ir_state,
-                                           ir.data(),
-                                           (int) ir.size(),
-                                           fft_scratch);
+    chowdsp::convolution::IR_Uniform conv_ir {};
+    chowdsp::convolution::create_ir (&conv_config,
+                                     &conv_ir,
+                                     ir.data(),
+                                     (int) ir.size(),
+                                     fft_scratch);
 
-    chowdsp::convolution::Process_State conv_state {};
-    chowdsp::convolution::create_process_state (&conv_config, &ir_state, &conv_state);
+    chowdsp::convolution::Process_Uniform_State conv_state {};
+    chowdsp::convolution::create_process_state (&conv_config, &conv_ir, &conv_state);
 
     start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_blocks; ++i)
@@ -373,7 +373,7 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
         {
             chowdsp::convolution::process_samples_with_latency (
                 &conv_config,
-                &ir_state,
+                &conv_ir,
                 &conv_state,
                 block_in,
                 block_out_test,
@@ -383,7 +383,7 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
         else
         {
             chowdsp::convolution::process_samples (&conv_config,
-                                                   &ir_state,
+                                                   &conv_ir,
                                                    &conv_state,
                                                    block_in,
                                                    block_out_test,
@@ -397,7 +397,7 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     std::cout << "  chowdsp is " << ref_duration_seconds / test_duration_seconds << "x faster\n";
 
     chowdsp::fft::aligned_free (fft_scratch);
-    chowdsp::convolution::destroy_ir_state (&ir_state);
+    chowdsp::convolution::destroy_ir (&conv_ir);
     chowdsp::convolution::destroy_process_state (&conv_state);
     chowdsp::convolution::destroy_config (&conv_config);
 

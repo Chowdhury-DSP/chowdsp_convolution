@@ -1,7 +1,9 @@
 #include "chowdsp_convolution.h"
 
 #include <algorithm>
+#include <cassert>
 #include <cstring>
+
 #include <chowdsp_fft.h>
 
 namespace chowdsp::convolution
@@ -30,13 +32,13 @@ void destroy_config (Config* config)
     *config = {};
 }
 
-void create_ir_state (const Config* config, IR_State* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
+void create_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
 {
-    create_ir_state (config, ir, ir_num_samples);
-    load_ir_state (config, ir, ir_data, ir_num_samples, fft_scratch);
+    create_ir (config, ir, ir_num_samples);
+    load_ir (config, ir, ir_data, ir_num_samples, fft_scratch);
 }
 
-void create_ir_state (const Config* config, IR_State* ir, int ir_num_samples)
+void create_ir (const Config* config, IR_Uniform* ir, int ir_num_samples)
 {
     size_t bytes_needed {};
 
@@ -48,9 +50,13 @@ void create_ir_state (const Config* config, IR_State* ir, int ir_num_samples)
     memset (ir->segments, 0, ir->num_segments * segment_num_samples * sizeof (float));
 }
 
-void load_ir_state (const Config* config, IR_State* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
+void load_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
 {
     const auto segment_num_samples = config->fft_size;
+
+    [[maybe_unused]] const auto num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
+    assert (num_segments == ir->num_segments); // wrong IR size!!
+
     int current_ptr {};
     for (int seg_idx = 0; seg_idx < ir->num_segments; ++seg_idx)
     {
@@ -68,13 +74,13 @@ void load_ir_state (const Config* config, IR_State* ir, const float* ir_data, in
     }
 }
 
-void destroy_ir_state (IR_State* ir)
+void destroy_ir (IR_Uniform* ir)
 {
     fft::aligned_free (ir->segments);
     *ir = {};
 }
 
-void create_process_state (const Config* config, const IR_State* ir, Process_State* state)
+void create_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
 {
     size_t bytes_needed {};
 
@@ -103,7 +109,7 @@ void create_process_state (const Config* config, const IR_State* ir, Process_Sta
     reset_process_state (config, state);
 }
 
-void reset_process_state (const Config* config, Process_State* state)
+void reset_process_state (const Config* config, Process_Uniform_State* state)
 {
     state->current_segment = 0;
     state->input_data_pos = 0;
@@ -119,15 +125,15 @@ void reset_process_state (const Config* config, Process_State* state)
     memset (state->overlap_data, 0, config->fft_size * sizeof (float));
 }
 
-void destroy_process_state (Process_State* state)
+void destroy_process_state (Process_Uniform_State* state)
 {
     fft::aligned_free (state->segments);
     *state = {};
 }
 
 void process_samples (const Config* config,
-                      const IR_State* ir,
-                      Process_State* state,
+                      const IR_Uniform* ir,
+                      Process_Uniform_State* state,
                       const float* input,
                       float* output,
                       int num_samples,
@@ -245,8 +251,8 @@ void process_samples (const Config* config,
 }
 
 void process_samples_with_latency (const Config* config,
-                                   const IR_State* ir,
-                                   Process_State* state,
+                                   const IR_Uniform* ir,
+                                   Process_Uniform_State* state,
                                    const float* input,
                                    float* output,
                                    int num_samples,

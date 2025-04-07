@@ -70,13 +70,13 @@ jobs:
         run: cmake -Bbuild -G"Ninja Multi-Config" -DCHOWDSP_CONVOLUTION_TESTING=ON ${{ matrix.cmake_args }}
 
       - name: Build Test (Debug)
-        run: cmake --build build --config Debug --parallel ${{ matrix.nparallel }} --target test_chowdsp_fft_cpp
+        run: cmake --build build --config Debug --parallel ${{ matrix.nparallel }} --target chowdsp_convolution_test
 
       - name: Run Test (Debug)
         run: ./build/test/Debug/chowdsp_convolution_test
 
       - name: Build Test (Release)
-        run: cmake --build build --config Release --parallel ${{ matrix.nparallel }} --target test_chowdsp_fft_cpp
+        run: cmake --build build --config Release --parallel ${{ matrix.nparallel }} --target chowdsp_convolution_test
 
       - name: Run Test (Release)
         run: ./build/test/Release/chowdsp_convolution_test

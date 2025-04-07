@@ -323,10 +323,11 @@ std::vector<float> generate (size_t N, std::mt19937& rng)
     return data;
 }
 
-static bool test_convolution (int ir_length_samples, int block_size, int num_blocks)
+static bool test_convolution (int ir_length_samples, int block_size, int num_blocks, bool latency)
 {
     std::cout << "Running test with IR length: " << ir_length_samples
-              << " and block size: " << block_size << '\n';
+              << ", block size: " << block_size
+              << ", latency: " << (latency ? "ON" : "OFF") << '\n';
 
     std::mt19937 rng { 0x12345 };
     auto ir = generate (ir_length_samples, rng);
@@ -339,7 +340,10 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     {
         const auto* block_in = input.data() + (i * block_size);
         auto* block_out_ref = ref_output.data() + (i * block_size);
-        reference_engine.processSamples (block_in, block_out_ref, block_size);
+        if (latency)
+            reference_engine.processSamplesWithAddedLatency (block_in, block_out_ref, block_size);
+        else
+            reference_engine.processSamples (block_in, block_out_ref, block_size);
     }
     auto duration = std::chrono::high_resolution_clock::now() - start;
     auto ref_duration_seconds = std::chrono::duration<float> (duration).count();
@@ -365,13 +369,27 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     {
         const auto* block_in = input.data() + (i * block_size);
         auto* block_out_test = test_output.data() + (i * block_size);
-        chowdsp::convolution::process_samples (&conv_config,
-                                               &ir_state,
-                                               &conv_state,
-                                               block_in,
-                                               block_out_test,
-                                               block_size,
-                                               fft_scratch);
+        if (latency)
+        {
+            chowdsp::convolution::process_samples_with_latency (
+                &conv_config,
+                &ir_state,
+                &conv_state,
+                block_in,
+                block_out_test,
+                block_size,
+                fft_scratch);
+        }
+        else
+        {
+            chowdsp::convolution::process_samples (&conv_config,
+                                                   &ir_state,
+                                                   &conv_state,
+                                                   block_in,
+                                                   block_out_test,
+                                                   block_size,
+                                                   fft_scratch);
+        }
     }
     duration = std::chrono::high_resolution_clock::now() - start;
     auto test_duration_seconds = std::chrono::duration<float> (duration).count();
@@ -403,17 +421,22 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
 int main()
 {
     auto success = true;
-    success &= test_convolution (6000, 2048, 4);
-    success &= test_convolution (6000, 512, 20);
-    success &= test_convolution (6000, 511, 20);
-    success &= test_convolution (6000, 32, 400);
-    success &= test_convolution (100, 2048, 2);
-    success &= test_convolution (100, 512, 4);
-    success &= test_convolution (100, 511, 4);
-    success &= test_convolution (100, 32, 10);
+    for (bool latency : { false, true })
+    {
+        success &= test_convolution (6000, 2048, 4, latency);
+        success &= test_convolution (6000, 512, 20, latency);
+        success &= test_convolution (6000, 511, 20, latency);
+        success &= test_convolution (6000, 32, 400, latency);
+        success &= test_convolution (100, 2048, 2, latency);
+        success &= test_convolution (100, 512, 4, latency);
+        success &= test_convolution (100, 511, 4, latency);
+        success &= test_convolution (100, 32, 10, latency);
+    }
 
 #if BUILD_RELEASE
-    success &= test_convolution (48'000, 512, 10'000);
+    std::cout << "Speed comparisons:\n";
+    success &= test_convolution (48'000, 512, 10'000, false);
+    success &= test_convolution (48'000, 512, 10'000, true);
 #endif
 
     return success ? 0 : 1;

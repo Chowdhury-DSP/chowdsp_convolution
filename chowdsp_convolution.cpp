@@ -136,6 +136,7 @@ void process_samples (const Config* config,
     const auto segment_num_samples = config->fft_size;
     int num_samples_processed = 0;
     auto index_step = state->num_segments / ir->num_segments;
+    const auto fft_inv_scale = 1.0f / static_cast<float> (config->fft_size);
 
     while (num_samples_processed < num_samples)
     {
@@ -157,7 +158,6 @@ void process_samples (const Config* config,
                                       fft::FFT_FORWARD);
 
         // Complex multiplication
-        const auto fft_inv_scale = 1.0f / static_cast<float> (config->fft_size);
         if (input_data_was_empty)
         {
             memset (state->output_temp_data, 0, config->fft_size * sizeof (float));
@@ -241,6 +241,112 @@ void process_samples (const Config* config,
         }
 
         num_samples_processed += samples_to_process;
+    }
+}
+
+void process_samples_with_latency (const Config* config,
+                                   const IR_State* ir,
+                                   Process_State* state,
+                                   const float* input,
+                                   float* output,
+                                   int num_samples,
+                                   float* fft_scratch)
+{
+    const auto segment_num_samples = config->fft_size;
+    int num_samples_processed = 0;
+    auto index_step = state->num_segments / ir->num_segments;
+    const auto fft_inv_scale = 1.0f / static_cast<float> (config->fft_size);
+
+    while (num_samples_processed < num_samples)
+    {
+        const auto samples_to_process = std::min (num_samples - num_samples_processed,
+                                                  config->block_size - state->input_data_pos);
+
+        memcpy (state->input_data + state->input_data_pos,
+                input + num_samples_processed,
+                samples_to_process * sizeof (float));
+
+        memcpy (output + num_samples_processed,
+                state->output_data + state->input_data_pos,
+                samples_to_process * sizeof (float));
+
+        num_samples_processed += samples_to_process;
+        state->input_data_pos += samples_to_process;
+
+        if (state->input_data_pos == config->block_size)
+        {
+            // Copy input data in input segment
+            auto* input_segment_data = state->segments + segment_num_samples * state->current_segment;
+            memcpy (input_segment_data, state->input_data, config->fft_size * sizeof (float));
+
+            fft::fft_transform_unordered (config->fft,
+                                          input_segment_data,
+                                          input_segment_data,
+                                          fft_scratch,
+                                          fft::FFT_FORWARD);
+
+            // Complex multiplication
+            memset (state->output_temp_data, 0, config->fft_size * sizeof (float));
+
+            auto index = state->current_segment;
+            for (int seg_idx = 1; seg_idx < ir->num_segments; ++seg_idx)
+            {
+                index += index_step;
+                if (index >= state->num_segments)
+                    index -= state->num_segments;
+
+                const auto* input_segment = state->segments + segment_num_samples * index;
+                const auto* ir_segment = ir->segments + segment_num_samples * seg_idx;
+                fft::fft_convolve_unordered (config->fft,
+                                             input_segment,
+                                             ir_segment,
+                                             state->output_temp_data,
+                                             fft_inv_scale);
+            }
+
+            memcpy (state->output_data, state->output_temp_data, config->fft_size * sizeof (float));
+
+            fft::fft_convolve_unordered (config->fft,
+                                         input_segment_data,
+                                         ir->segments,
+                                         state->output_data,
+                                         fft_inv_scale);
+            fft::fft_transform_unordered (config->fft,
+                                          state->output_data,
+                                          state->output_data,
+                                          fft_scratch,
+                                          fft::FFT_BACKWARD);
+
+            // Add overlap
+            fft::fft_accumulate (config->fft,
+                                 state->overlap_data,
+                                 state->output_data,
+                                 state->output_data,
+                                 config->block_size);
+
+            // Input buffer is empty again now
+            memset (state->input_data, 0, config->fft_size * sizeof (float));
+
+            // Extra step for segSize > blockSize
+            const auto extra_block_samples = config->fft_size - 2 * config->block_size;
+            if (extra_block_samples > 0)
+            {
+                fft::fft_accumulate (config->fft,
+                                     state->overlap_data + config->block_size,
+                                     state->output_data + config->block_size,
+                                     state->output_data + config->block_size,
+                                     extra_block_samples);
+            }
+
+            // Save the overlap
+            memcpy (state->overlap_data,
+                    state->output_data + config->block_size,
+                    (config->fft_size - config->block_size) * sizeof (float));
+
+            state->current_segment = (state->current_segment > 0) ? (state->current_segment - 1) : (state->num_segments - 1);
+
+            state->input_data_pos = 0;
+        }
     }
 }
 } // namespace chowdsp::convolution

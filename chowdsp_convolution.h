@@ -64,5 +64,20 @@ void process_samples (const Config*,
                       int N,
                       float* fft_scratch);
 
+/**
+ * Similar to process_samples(), but with an added
+ * config->block_size samples of latency. In exchange,
+ * the convolution processing will be a little bit
+ * faster, especially when processing with odd block
+ * sizes.
+ */
+void process_samples_with_latency (const Config*,
+                                   const IR_State*,
+                                   Process_State*,
+                                   const float* in,
+                                   float* out,
+                                   int N,
+                                   float* fft_scratch);
+
 // @TODO: process_samples_with_latency
 } // namespace chowdsp::convolution

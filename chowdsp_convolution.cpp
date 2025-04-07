@@ -194,14 +194,20 @@ void process_samples (const Config* config,
 
         // Add overlap
         {
-            const auto vec_width_x2 = 2 * fft::fft_simd_width_bytes (config->fft) / static_cast<int> (sizeof (float));
-            const auto n_samples_vec = (samples_to_process / vec_width_x2) * vec_width_x2;
-            fft::fft_accumulate (config->fft,
-                                 state->output_data + state->input_data_pos,
-                                 state->overlap_data + state->input_data_pos,
-                                 output + num_samples_processed,
-                                 n_samples_vec);
-            for (int i = n_samples_vec; i < samples_to_process; ++i) // extra data that can't be SIMD-ed
+            // Using SIMD for this operation is tricky, because
+            // we can't guarantee that the pointers will be aligned.
+
+            // const auto vec_width_x2 = 2 * fft::fft_simd_width_bytes (config->fft) / static_cast<int> (sizeof (float));
+            // const auto n_samples_vec = (samples_to_process / vec_width_x2) * vec_width_x2;
+            // fft::fft_accumulate (config->fft,
+            //                      state->output_data + state->input_data_pos,
+            //                      state->overlap_data + state->input_data_pos,
+            //                      output + num_samples_processed,
+            //                      n_samples_vec);
+            // for (int i = n_samples_vec; i < samples_to_process; ++i) // extra data that can't be SIMD-ed
+            //     output[num_samples_processed + i] = state->output_data[state->input_data_pos + i] + state->overlap_data[state->input_data_pos + i];
+
+            for (int i = 0; i < samples_to_process; ++i)
                 output[num_samples_processed + i] = state->output_data[state->input_data_pos + i] + state->overlap_data[state->input_data_pos + i];
         }
 

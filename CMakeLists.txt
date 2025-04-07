@@ -1,7 +1,10 @@
 cmake_minimum_required(VERSION 3.20)
 project(chowdsp_convolution)
 
-if(NOT TARGET chowdsp_fft)
+if(TARGET chowdsp_fft)
+    get_target_property(chowdsp_fft_dir chowdsp_fft SOURCE_DIR)
+    message(STATUS "Using chowdsp_fft from ${chowdsp_fft_dir}")
+else()
     message(STATUS "Using chowdsp_fft from CPM")
     include(cmake/CPM.cmake)
     unset(JUCE_MODULES_DIR CACHE) # this causes problems with the tests CMake config?
@@ -18,4 +21,6 @@ target_include_directories(chowdsp_convolution PUBLIC ${CMAKE_CURRENT_SOURCE_DIR
 target_link_libraries(chowdsp_convolution PUBLIC chowdsp_fft)
 target_compile_features(chowdsp_convolution PRIVATE cxx_std_20)
 
-add_subdirectory(test)
+if(CHOWDSP_CONVOLUTION_TESTING)
+    add_subdirectory(test)
+endif()

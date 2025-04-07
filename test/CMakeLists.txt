@@ -20,5 +20,13 @@ target_link_libraries(chowdsp_convolution_test
 target_compile_definitions(chowdsp_convolution_test
     PRIVATE
         JUCE_MODULE_AVAILABLE_juce_dsp=1 # chowdsp_pffft includes juce_dsp internally!
+        $<IF:$<CONFIG:DEBUG>,BUILD_DEBUG=1,BUILD_RELEASE=1>
 )
 target_compile_features(chowdsp_convolution_test PRIVATE cxx_std_20)
+
+if(CHOWDSP_CONVOLUTION_COVERAGE)
+    message(STATUS "Appending code coverage compiler flags: -g --coverage")
+    target_compile_options(chowdsp_convolution PUBLIC -g --coverage -fprofile-arcs -ftest-coverage)
+    target_compile_options(chowdsp_convolution_test PUBLIC -g --coverage -fprofile-arcs -ftest-coverage)
+    target_link_options(chowdsp_convolution_test PUBLIC --coverage)
+endif()

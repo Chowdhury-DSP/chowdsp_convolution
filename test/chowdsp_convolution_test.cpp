@@ -333,12 +333,16 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     std::vector<float> ref_output (input.size());
 
     ConvolutionEngine reference_engine { ir.data(), ir.size(), (size_t) block_size };
+    auto start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_blocks; ++i)
     {
         const auto* block_in = input.data() + (i * block_size);
         auto* block_out_ref = ref_output.data() + (i * block_size);
         reference_engine.processSamples (block_in, block_out_ref, block_size);
     }
+    auto duration = std::chrono::high_resolution_clock::now() - start;
+    auto ref_duration_seconds = std::chrono::duration<float> (duration).count();
+    std::cout << "  juce::dsp::Convolution: " << ref_duration_seconds << " seconds" << std::endl;
 
     std::vector<float> test_output (input.size());
     chowdsp::convolution::Config conv_config {};
@@ -355,6 +359,7 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     chowdsp::convolution::Process_State conv_state {};
     chowdsp::convolution::create_process_state (&conv_config, &ir_state, &conv_state);
 
+    start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_blocks; ++i)
     {
         const auto* block_in = input.data() + (i * block_size);
@@ -367,6 +372,10 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
                                                block_size,
                                                fft_scratch);
     }
+    duration = std::chrono::high_resolution_clock::now() - start;
+    auto test_duration_seconds = std::chrono::duration<float> (duration).count();
+    std::cout << "  chowdsp_convolution: " << test_duration_seconds << " seconds" << std::endl;
+    std::cout << "  chowdsp is " << ref_duration_seconds / test_duration_seconds << "x faster\n";
 
     chowdsp::fft::aligned_free (fft_scratch);
     chowdsp::convolution::destroy_ir_state (&ir_state);
@@ -402,5 +411,9 @@ int main()
     success &= test_convolution (100, 511, 4);
     success &= test_convolution (100, 32, 10);
 
-    return success ? 0 : 1;
+#if BUILD_RELEASE
+    success &= test_convolution (48'000, 512, 10'000);
+#endif
+
+    return success ? 0 : 1;\
 }

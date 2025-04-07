@@ -30,38 +30,33 @@ void destroy_config (Config* config)
     *config = {};
 }
 
-void create_state (const Config* config, State* state, const float* ir, int ir_num_samples)
+void create_ir_state (const Config* config, IR_State* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
 {
-    size_t state_bytes_needed {};
+    create_ir_state (config, ir, ir_num_samples);
+    load_ir_state (config, ir, ir_data, ir_num_samples, fft_scratch);
+}
+
+void create_ir_state (const Config* config, IR_State* ir, int ir_num_samples)
+{
+    size_t bytes_needed {};
 
     const auto segment_num_samples = config->fft_size;
-    state->num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
-    state_bytes_needed += segment_num_samples * state->num_segments * sizeof (float);
+    ir->num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
+    bytes_needed += segment_num_samples * ir->num_segments * sizeof (float);
 
-    state->input_num_segments = config->block_size > 128 ? state->num_segments : 3 * state->num_segments;
-    state_bytes_needed += segment_num_samples * state->input_num_segments * sizeof (float);
+    ir->segments = static_cast<float*> (fft::aligned_malloc (bytes_needed));
+    memset (ir->segments, 0, ir->num_segments * segment_num_samples * sizeof (float));
+}
 
-    state_bytes_needed += config->fft_size * sizeof (float); // fft scratch
-    state_bytes_needed += config->fft_size * sizeof (float); // input data
-    state_bytes_needed += config->fft_size * sizeof (float); // output data
-    state_bytes_needed += config->fft_size * sizeof (float); // output temp data
-    state_bytes_needed += config->fft_size * sizeof (float); // overlap data
-    state->data = fft::aligned_malloc (state_bytes_needed);
-    float* data = reinterpret_cast<float*> (state->data);
-
-    auto* fft_scratch = data;
-    data += config->fft_size;
-
-    state->impulse_segments = data;
-    data += segment_num_samples * state->num_segments;
+void load_ir_state (const Config* config, IR_State* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
+{
+    const auto segment_num_samples = config->fft_size;
     int current_ptr {};
-    for (int seg_idx = 0; seg_idx < state->num_segments; ++seg_idx)
+    for (int seg_idx = 0; seg_idx < ir->num_segments; ++seg_idx)
     {
-        float* segment = state->impulse_segments + segment_num_samples * seg_idx;
-        memset (segment, 0, segment_num_samples * sizeof (float));
-
+        float* segment = ir->segments + segment_num_samples * seg_idx;
         memcpy (segment,
-                ir + current_ptr,
+                ir_data + current_ptr,
                 std::min (config->fft_size - config->block_size, ir_num_samples - current_ptr) * sizeof (float));
         fft::fft_transform_unordered (config->fft,
                                       segment,
@@ -71,9 +66,31 @@ void create_state (const Config* config, State* state, const float* ir, int ir_n
 
         current_ptr += config->fft_size - config->block_size;
     }
+}
 
-    state->input_segments = data;
-    data += segment_num_samples * state->input_num_segments;
+void destroy_ir_state (IR_State* ir)
+{
+    fft::aligned_free (ir->segments);
+    *ir = {};
+}
+
+void create_process_state (const Config* config, const IR_State* ir, Process_State* state)
+{
+    size_t bytes_needed {};
+
+    const auto segment_num_samples = config->fft_size;
+
+    state->num_segments = config->block_size > 128 ? ir->num_segments : 3 * ir->num_segments;
+    bytes_needed += segment_num_samples * state->num_segments * sizeof (float);
+
+    bytes_needed += config->fft_size * sizeof (float); // input data
+    bytes_needed += config->fft_size * sizeof (float); // output data
+    bytes_needed += config->fft_size * sizeof (float); // output temp data
+    bytes_needed += config->fft_size * sizeof (float); // overlap data
+    auto* data = static_cast<float*> (fft::aligned_malloc (bytes_needed));
+
+    state->segments = data;
+    data += segment_num_samples * state->num_segments;
     state->input_data = data;
     data += config->fft_size;
     state->output_data = data;
@@ -83,24 +100,18 @@ void create_state (const Config* config, State* state, const float* ir, int ir_n
     state->overlap_data = data;
     data += config->fft_size;
 
-    reset (config, state);
+    reset_process_state (config, state);
 }
 
-void destroy_state (State* state)
-{
-    fft::aligned_free (state->data);
-    *state = {};
-}
-
-void reset (const Config* config, State* state)
+void reset_process_state (const Config* config, Process_State* state)
 {
     state->current_segment = 0;
     state->input_data_pos = 0;
 
     const auto segment_num_samples = config->fft_size;
-    memset (state->input_segments,
+    memset (state->segments,
             0,
-            segment_num_samples * state->input_num_segments * sizeof (float));
+            segment_num_samples * state->num_segments * sizeof (float));
 
     memset (state->input_data, 0, config->fft_size * sizeof (float));
     memset (state->output_data, 0, config->fft_size * sizeof (float));
@@ -108,16 +119,23 @@ void reset (const Config* config, State* state)
     memset (state->overlap_data, 0, config->fft_size * sizeof (float));
 }
 
+void destroy_process_state (Process_State* state)
+{
+    fft::aligned_free (state->segments);
+    *state = {};
+}
+
 void process_samples (const Config* config,
-                      State* state,
+                      const IR_State* ir,
+                      Process_State* state,
                       const float* input,
                       float* output,
-                      int num_samples)
+                      int num_samples,
+                      float* fft_scratch)
 {
     const auto segment_num_samples = config->fft_size;
     int num_samples_processed = 0;
-    auto* fft_scratch = reinterpret_cast<float*> (state->data);
-    auto index_step = state->input_num_segments / state->num_segments;
+    auto index_step = state->num_segments / ir->num_segments;
 
     while (num_samples_processed < num_samples)
     {
@@ -129,7 +147,7 @@ void process_samples (const Config* config,
                 input + num_samples_processed,
                 samples_to_process * sizeof (float));
 
-        auto* input_segment_data = state->input_segments + segment_num_samples * state->current_segment;
+        auto* input_segment_data = state->segments + segment_num_samples * state->current_segment;
         memcpy (input_segment_data, state->input_data, config->fft_size * sizeof (float));
 
         fft::fft_transform_unordered (config->fft,
@@ -145,14 +163,14 @@ void process_samples (const Config* config,
             memset (state->output_temp_data, 0, config->fft_size * sizeof (float));
 
             auto index = state->current_segment;
-            for (int seg_idx = 1; seg_idx < state->num_segments; ++seg_idx)
+            for (int seg_idx = 1; seg_idx < ir->num_segments; ++seg_idx)
             {
                 index += index_step;
-                if (index >= state->input_num_segments)
-                    index -= state->input_num_segments;
+                if (index >= state->num_segments)
+                    index -= state->num_segments;
 
-                const auto* input_segment = state->input_segments + segment_num_samples * index;
-                const auto* ir_segment = state->impulse_segments + segment_num_samples * seg_idx;
+                const auto* input_segment = state->segments + segment_num_samples * index;
+                const auto* ir_segment = ir->segments + segment_num_samples * seg_idx;
                 fft::fft_convolve_unordered (config->fft,
                                              input_segment,
                                              ir_segment,
@@ -165,7 +183,7 @@ void process_samples (const Config* config,
 
         fft::fft_convolve_unordered (config->fft,
                                      input_segment_data,
-                                     state->impulse_segments,
+                                     ir->segments,
                                      state->output_data,
                                      fft_inv_scale);
         fft::fft_transform_unordered (config->fft,
@@ -175,17 +193,17 @@ void process_samples (const Config* config,
                                       fft::FFT_BACKWARD);
 
         // Add overlap
-        // const auto vec_width_x2 = 2 * fft::fft_simd_width_bytes (config->fft) / (int) sizeof (float);
-        // const auto n_samples_vec = (samples_to_process / vec_width_x2) * vec_width_x2;
-        // fft::fft_accumulate (config->fft,
-        //                      state->output_data + state->input_data_pos,
-        //                      state->overlap_data + state->input_data_pos,
-        //                      output + num_samples_processed,
-        //                      n_samples_vec);
-        // for (int i = n_samples_vec; i < samples_to_process; ++i) // extra data that can't be SIMD-ed
-        //     output[num_samples_processed + i] = state->output_data[state->input_data_pos + i] + state->overlap_data[state->input_data_pos + i];
-        for (int i = 0; i < samples_to_process; ++i) // extra data that can't be SIMD-ed
-            output[num_samples_processed + i] = state->output_data[state->input_data_pos + i] + state->overlap_data[state->input_data_pos + i];
+        {
+            const auto vec_width_x2 = 2 * fft::fft_simd_width_bytes (config->fft) / static_cast<int> (sizeof (float));
+            const auto n_samples_vec = (samples_to_process / vec_width_x2) * vec_width_x2;
+            fft::fft_accumulate (config->fft,
+                                 state->output_data + state->input_data_pos,
+                                 state->overlap_data + state->input_data_pos,
+                                 output + num_samples_processed,
+                                 n_samples_vec);
+            for (int i = n_samples_vec; i < samples_to_process; ++i) // extra data that can't be SIMD-ed
+                output[num_samples_processed + i] = state->output_data[state->input_data_pos + i] + state->overlap_data[state->input_data_pos + i];
+        }
 
         // Input buffer full => Next block
         state->input_data_pos += samples_to_process;
@@ -213,7 +231,7 @@ void process_samples (const Config* config,
                     state->output_data + config->block_size,
                     (config->fft_size - config->block_size) * sizeof (float));
 
-            state->current_segment = (state->current_segment > 0) ? (state->current_segment - 1) : (state->input_num_segments - 1);
+            state->current_segment = (state->current_segment > 0) ? (state->current_segment - 1) : (state->num_segments - 1);
         }
 
         num_samples_processed += samples_to_process;

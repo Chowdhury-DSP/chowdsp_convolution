@@ -4,6 +4,7 @@
 #include <juce_dsp/juce_dsp.h>
 
 #include <chowdsp_convolution.h>
+#include <chowdsp_fft.h>
 
 #include <chowdsp_buffers/chowdsp_buffers.h>
 #include <chowdsp_buffers/Buffers/chowdsp_Buffer.cpp> // NOLINT
@@ -324,7 +325,7 @@ std::vector<float> generate (size_t N, std::mt19937& rng)
 static bool test_convolution (int ir_length_samples, int block_size, int num_blocks)
 {
     std::cout << "Running test with IR length: " << ir_length_samples
-        << " and block size: " << block_size << '\n';
+              << " and block size: " << block_size << '\n';
 
     std::mt19937 rng { 0x12345 };
     auto ir = generate (ir_length_samples, rng);
@@ -341,25 +342,35 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
 
     std::vector<float> test_output (input.size());
     chowdsp::convolution::Config conv_config {};
-    chowdsp::convolution::State conv_state {};
     chowdsp::convolution::create_config (&conv_config, block_size);
-    chowdsp::convolution::create_state (&conv_config,
-                                        &conv_state,
-                                        ir.data(),
-                                        ir.size());
+    auto* fft_scratch = (float*) chowdsp::fft::aligned_malloc (conv_config.fft_size * sizeof (float));
+
+    chowdsp::convolution::IR_State ir_state {};
+    chowdsp::convolution::create_ir_state (&conv_config,
+                                           &ir_state,
+                                           ir.data(),
+                                           (int) ir.size(),
+                                           fft_scratch);
+
+    chowdsp::convolution::Process_State conv_state {};
+    chowdsp::convolution::create_process_state (&conv_config, &ir_state, &conv_state);
 
     for (int i = 0; i < num_blocks; ++i)
     {
         const auto* block_in = input.data() + (i * block_size);
         auto* block_out_test = test_output.data() + (i * block_size);
         chowdsp::convolution::process_samples (&conv_config,
+                                               &ir_state,
                                                &conv_state,
                                                block_in,
                                                block_out_test,
-                                               block_size);
+                                               block_size,
+                                               fft_scratch);
     }
 
-    chowdsp::convolution::destroy_state (&conv_state);
+    chowdsp::fft::aligned_free (fft_scratch);
+    chowdsp::convolution::destroy_ir_state (&ir_state);
+    chowdsp::convolution::destroy_process_state (&conv_state);
     chowdsp::convolution::destroy_config (&conv_config);
 
     float error_accum {};

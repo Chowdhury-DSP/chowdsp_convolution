@@ -1,7 +1,7 @@
 # chowdsp_convolution
 
 [![Test](https://github.com/Chowdhury-DSP/chowdsp_convolution/actions/workflows/test.yml/badge.svg)](https://github.com/Chowdhury-DSP/chowdsp_convolution/actions/workflows/test.yml)
-[![codecov](https://codecov.io/gh/Chowdhury-DSP/chowdsp_convolution/graph/badge.svg?token=A5BJ6CS859)](https://codecov.io/gh/Chowdhury-DSP/chowdsp_convolution)
+[![codecov](https://codecov.io/gh/Chowdhury-DSP/chowdsp_convolution/graph/badge.svg?token=3WCDKPHA58)](https://codecov.io/gh/Chowdhury-DSP/chowdsp_convolution)
 
 `chowdsp_convolution` is a library for performing frequency-domain
 convolution using [`chowdsp_fft`](https://github.com/Chowdhury-DSP/chowdsp_fft).

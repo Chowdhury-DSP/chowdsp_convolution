@@ -101,6 +101,4 @@ void process_samples_with_latency (const Config*,
                                    float* out,
                                    int N,
                                    float* fft_scratch);
-
-// @TODO: process_samples_with_latency
 } // namespace chowdsp::convolution

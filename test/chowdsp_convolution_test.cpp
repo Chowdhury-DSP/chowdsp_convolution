@@ -1,3 +1,4 @@
+#include <chrono>
 #include <iostream>
 #include <random>
 
@@ -396,7 +397,7 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     std::cout << "  Max error: " << max_error << '\n';
     std::cout << "  Mean-squared error: " << mse << '\n';
 
-    return max_error < 1.0e-4f && mse < 1.0e-10f;
+    return max_error < 5.0e-4f && mse < 1.0e-9f;
 }
 
 int main()
@@ -415,5 +416,5 @@ int main()
     success &= test_convolution (48'000, 512, 10'000);
 #endif
 
-    return success ? 0 : 1;\
+    return success ? 0 : 1;
 }

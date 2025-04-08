@@ -8,6 +8,11 @@ convolution using [`chowdsp_fft`](https://github.com/Chowdhury-DSP/chowdsp_fft).
 The library currently supports uniformly-partitioned convolutions,
 and may support non-uniform partitioning in the future.
 
+**N.B.: This library is still in early development, and
+there will likely be breaking changes.** If you have
+suggestions for ways to improve the API, or features to
+add please create a GitHub Issue.
+
 ## Usage
 
 First, create a `Config` object:

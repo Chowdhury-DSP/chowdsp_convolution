@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(chowdsp_convolution)
+project(chowdsp_convolution VERSION 0.1.0)
 
 if(TARGET chowdsp_fft)
     get_target_property(chowdsp_fft_dir chowdsp_fft SOURCE_DIR)

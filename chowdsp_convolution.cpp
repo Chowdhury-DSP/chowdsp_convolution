@@ -43,7 +43,9 @@ void create_zero_ir (const Config* config, IR_Uniform* ir, int ir_num_samples)
     size_t bytes_needed {};
 
     const auto segment_num_samples = config->fft_size;
-    ir->num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
+    const auto num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
+    ir->max_num_segments = num_segments;
+    ir->num_segments = num_segments;
     bytes_needed += segment_num_samples * ir->num_segments * sizeof (float);
 
     ir->segments = static_cast<float*> (fft::aligned_malloc (bytes_needed));
@@ -54,8 +56,9 @@ void load_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int ir
 {
     const auto segment_num_samples = config->fft_size;
 
-    [[maybe_unused]] const auto num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
-    assert (num_segments == ir->num_segments); // wrong IR size!!
+    const auto num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
+    assert (num_segments <= ir->max_num_segments); // IR is too large for the allocated number of segments
+    ir->num_segments = num_segments;
 
     int current_ptr {};
     for (int seg_idx = 0; seg_idx < ir->num_segments; ++seg_idx)
@@ -86,8 +89,8 @@ void create_process_state (const Config* config, const IR_Uniform* ir, Process_U
 
     const auto segment_num_samples = config->fft_size;
 
-    state->num_segments = config->block_size > 128 ? ir->num_segments : 3 * ir->num_segments;
-    bytes_needed += segment_num_samples * state->num_segments * sizeof (float);
+    state->max_num_segments = config->block_size > 128 ? ir->max_num_segments : 3 * ir->max_num_segments;
+    bytes_needed += segment_num_samples * state->max_num_segments * sizeof (float);
 
     bytes_needed += config->fft_size * sizeof (float); // input data
     bytes_needed += config->fft_size * sizeof (float); // output data
@@ -96,7 +99,7 @@ void create_process_state (const Config* config, const IR_Uniform* ir, Process_U
     auto* data = static_cast<float*> (fft::aligned_malloc (bytes_needed));
 
     state->segments = data;
-    data += segment_num_samples * state->num_segments;
+    data += segment_num_samples * state->max_num_segments;
     state->input_data = data;
     data += config->fft_size;
     state->output_data = data;
@@ -117,7 +120,7 @@ void reset_process_state (const Config* config, Process_Uniform_State* state)
     const auto segment_num_samples = config->fft_size;
     memset (state->segments,
             0,
-            segment_num_samples * state->num_segments * sizeof (float));
+            segment_num_samples * state->max_num_segments * sizeof (float));
 
     memset (state->input_data, 0, config->fft_size * sizeof (float));
     memset (state->output_data, 0, config->fft_size * sizeof (float));
@@ -139,11 +142,12 @@ void process_samples (const Config* config,
                       int num_samples,
                       float* fft_scratch)
 {
-    const auto segment_num_samples = config->fft_size;
-    int num_samples_processed = 0;
-    auto index_step = state->num_segments / ir->num_segments;
     const auto fft_inv_scale = 1.0f / static_cast<float> (config->fft_size);
+    const auto segment_num_samples = config->fft_size;
+    const auto state_num_segments = config->block_size > 128 ? ir->num_segments : 3 * ir->num_segments;
+    auto index_step = state_num_segments / ir->num_segments;
 
+    int num_samples_processed = 0;
     while (num_samples_processed < num_samples)
     {
         const auto input_data_was_empty = state->input_data_pos == 0;
@@ -172,8 +176,8 @@ void process_samples (const Config* config,
             for (int seg_idx = 1; seg_idx < ir->num_segments; ++seg_idx)
             {
                 index += index_step;
-                if (index >= state->num_segments)
-                    index -= state->num_segments;
+                if (index >= state_num_segments)
+                    index -= state_num_segments;
 
                 const auto* input_segment = state->segments + segment_num_samples * index;
                 const auto* ir_segment = ir->segments + segment_num_samples * seg_idx;
@@ -243,7 +247,7 @@ void process_samples (const Config* config,
                     state->output_data + config->block_size,
                     (config->fft_size - config->block_size) * sizeof (float));
 
-            state->current_segment = (state->current_segment > 0) ? (state->current_segment - 1) : (state->num_segments - 1);
+            state->current_segment = (state->current_segment > 0) ? (state->current_segment - 1) : (state_num_segments - 1);
         }
 
         num_samples_processed += samples_to_process;
@@ -258,11 +262,12 @@ void process_samples_with_latency (const Config* config,
                                    int num_samples,
                                    float* fft_scratch)
 {
-    const auto segment_num_samples = config->fft_size;
-    int num_samples_processed = 0;
-    auto index_step = state->num_segments / ir->num_segments;
     const auto fft_inv_scale = 1.0f / static_cast<float> (config->fft_size);
+    const auto segment_num_samples = config->fft_size;
+    const auto state_num_segments = config->block_size > 128 ? ir->num_segments : 3 * ir->num_segments;
+    auto index_step = state_num_segments / ir->num_segments;
 
+    int num_samples_processed = 0;
     while (num_samples_processed < num_samples)
     {
         const auto samples_to_process = std::min (num_samples - num_samples_processed,
@@ -298,8 +303,8 @@ void process_samples_with_latency (const Config* config,
             for (int seg_idx = 1; seg_idx < ir->num_segments; ++seg_idx)
             {
                 index += index_step;
-                if (index >= state->num_segments)
-                    index -= state->num_segments;
+                if (index >= state_num_segments)
+                    index -= state_num_segments;
 
                 const auto* input_segment = state->segments + segment_num_samples * index;
                 const auto* ir_segment = ir->segments + segment_num_samples * seg_idx;
@@ -349,7 +354,7 @@ void process_samples_with_latency (const Config* config,
                     state->output_data + config->block_size,
                     (config->fft_size - config->block_size) * sizeof (float));
 
-            state->current_segment = (state->current_segment > 0) ? (state->current_segment - 1) : (state->num_segments - 1);
+            state->current_segment = (state->current_segment > 0) ? (state->current_segment - 1) : (state_num_segments - 1);
 
             state->input_data_pos = 0;
         }

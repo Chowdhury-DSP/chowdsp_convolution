@@ -80,3 +80,15 @@ jobs:
 
       - name: Run Test (Release)
         run: ./build/test/Release/chowdsp_convolution_test
+
+      - name: Build Test C (Debug)
+        run: cmake --build build --config Debug --parallel ${{ matrix.nparallel }} --target chowdsp_convolution_c_test
+
+      - name: Run Test C (Debug)
+        run: ./build/test/Debug/chowdsp_convolution_c_test
+
+      - name: Build Test C++ (Release)
+        run: cmake --build build --config Release --parallel ${{ matrix.nparallel }} --target chowdsp_convolution_c_test
+
+      - name: Run Test C++ (Release)
+        run: ./build/test/Release/chowdsp_convolution_c_test

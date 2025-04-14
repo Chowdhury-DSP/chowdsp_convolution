@@ -34,11 +34,11 @@ void destroy_config (Config* config)
 
 void create_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
 {
-    create_ir (config, ir, ir_num_samples);
+    create_zero_ir (config, ir, ir_num_samples);
     load_ir (config, ir, ir_data, ir_num_samples, fft_scratch);
 }
 
-void create_ir (const Config* config, IR_Uniform* ir, int ir_num_samples)
+void create_zero_ir (const Config* config, IR_Uniform* ir, int ir_num_samples)
 {
     size_t bytes_needed {};
 

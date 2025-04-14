@@ -31,3 +31,6 @@ if(CHOWDSP_CONVOLUTION_COVERAGE)
     target_compile_options(chowdsp_convolution_test PUBLIC -g --coverage -fprofile-arcs -ftest-coverage)
     target_link_options(chowdsp_convolution_test PUBLIC --coverage)
 endif()
+
+add_executable(chowdsp_convolution_c_test chowdsp_convolution_test.c)
+target_link_libraries(chowdsp_convolution_c_test PRIVATE chowdsp_convolution)

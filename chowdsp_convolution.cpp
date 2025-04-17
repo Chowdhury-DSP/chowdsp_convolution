@@ -146,6 +146,7 @@ void process_samples (const Config* config,
     const auto segment_num_samples = config->fft_size;
     const auto state_num_segments = config->block_size > 128 ? ir->num_segments : 3 * ir->num_segments;
     auto index_step = state_num_segments / ir->num_segments;
+    state->current_segment = (state->current_segment >= state_num_segments) ? 0 : state->current_segment;
 
     int num_samples_processed = 0;
     while (num_samples_processed < num_samples)
@@ -266,6 +267,7 @@ void process_samples_with_latency (const Config* config,
     const auto segment_num_samples = config->fft_size;
     const auto state_num_segments = config->block_size > 128 ? ir->num_segments : 3 * ir->num_segments;
     auto index_step = state_num_segments / ir->num_segments;
+    state->current_segment = (state->current_segment >= state_num_segments) ? 0 : state->current_segment;
 
     int num_samples_processed = 0;
     while (num_samples_processed < num_samples)

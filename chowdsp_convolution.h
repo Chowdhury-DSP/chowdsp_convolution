@@ -24,19 +24,20 @@ using Config = Convolution_Config;
 /** State for a mono uniform-partitioned IR. */
 struct IR_Uniform
 {
-    int num_segments;
     float* segments;
+    int num_segments;
+    int max_num_segments;
 };
 
 /** State for processing a mono uniform-partitioned IR */
 struct Process_Uniform_State
 {
-    int num_segments;
     float* segments;
     float* input_data;
     float* output_data;
     float* output_temp_data;
     float* overlap_data;
+    int max_num_segments;
     int current_segment;
     int input_data_pos;
 };

@@ -42,13 +42,23 @@ struct Process_Uniform_State
     int input_data_pos;
 };
 
+/** State for a mono non-uniform-partitioned IR. */
 struct IR_Non_Uniform
 {
-    IR_Uniform head;
-    IR_Uniform tail;
-    const Convolution_Config* head_config;
-    const Convolution_Config* tail_config;
+    struct IR_Uniform head;
+    struct IR_Uniform tail;
+    const struct Convolution_Config* head_config;
+    const struct Convolution_Config* tail_config;
     int head_size;
+};
+
+/** State for processing a mono non-uniform-partitioned IR */
+struct Process_Non_Uniform_State
+{
+    struct Process_Uniform_State head;
+    struct Process_Uniform_State tail;
+    const struct Convolution_Config* head_config;
+    const struct Convolution_Config* tail_config;
 };
 
 /** Creates a convolution config for a given maximum block size */
@@ -60,7 +70,7 @@ void destroy_config (struct Convolution_Config*);
 /**
  * Creates a monophonic IR.
  *
- * The fft_scratch pointer should be point to
+ * The fft_scratch pointer should point to
  * an array of config->fft_size floats, and should
  * have 64-byte alignment.
  */
@@ -94,11 +104,11 @@ void destroy_process_state (struct Process_Uniform_State*);
 /**
  * Creates a monophonic non-uniform IR.
  *
- * The fft_scratch pointer should be point to
- * an array of config->fft_size floats, and should
+ * The scratch pointer should point to an allocated block
+ * of at least get_required_nuir_scratch_bytes(), and should
  * have 64-byte alignment.
  */
-void create_nuir (struct IR_Non_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch);
+void create_nuir (struct IR_Non_Uniform*, const float* ir, int ir_num_samples, float* scratch);
 
 /**
  * Creates a mono non-uniform IR of a given size.
@@ -114,10 +124,19 @@ size_t get_required_nuir_scratch_bytes (const struct IR_Non_Uniform*);
  * `ir_num_samples` must be less than or equal the number of samples
  * the IR was created to expect.
  */
-void load_nuir (struct IR_Non_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch);
+void load_nuir (struct IR_Non_Uniform*, const float* ir, int ir_num_samples, float* scratch);
 
 /** De-allocates the IR's internal data. */
 void destroy_nuir (struct IR_Non_Uniform*);
+
+/** Creates a mono process state object for a given IR. */
+void create_nuir_process_state (const struct IR_Non_Uniform*, struct Process_Non_Uniform_State*);
+
+/** Zeros the process state. */
+void reset_nuir_process_state (struct Process_Non_Uniform_State*);
+
+/** De-allocates the state's internal data. */
+void destroy_nuir_process_state (struct Process_Non_Uniform_State*);
 
 /**
  * Performs convolution processing for a given IR and state.
@@ -148,6 +167,20 @@ void process_samples_with_latency (const struct Convolution_Config*,
                                    float* out,
                                    int N,
                                    float* fft_scratch);
+
+/**
+ * Performs convolution processing for a given non-uniform IR and state.
+ *
+ * The scratch pointer should point to an allocated block
+ * of at least get_required_nuir_scratch_bytes(), and should
+ * have 64-byte alignment.
+ */
+void process_samples_non_uniform (const struct IR_Non_Uniform*,
+                                  struct Process_Non_Uniform_State*,
+                                  const float* in,
+                                  float* out,
+                                  int N,
+                                  float* scratch);
 
 #ifdef __cplusplus
 } // namespace chowdsp::convolution

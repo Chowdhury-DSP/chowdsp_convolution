@@ -42,6 +42,15 @@ struct Process_Uniform_State
     int input_data_pos;
 };
 
+struct IR_Non_Uniform
+{
+    IR_Uniform head;
+    IR_Uniform tail;
+    const Convolution_Config* head_config;
+    const Convolution_Config* tail_config;
+    int head_size;
+};
+
 /** Creates a convolution config for a given maximum block size */
 void create_config (struct Convolution_Config*, int max_block_size);
 
@@ -65,7 +74,8 @@ void create_zero_ir (const struct Convolution_Config*, struct IR_Uniform*, int i
 
 /**
  * Loads IR data.
- * The data must be the same number of samples as the IR was created with.
+ * `ir_num_samples` must be less than or equal the number of samples
+ * the IR was created to expect.
  */
 void load_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch);
 
@@ -80,6 +90,34 @@ void reset_process_state (const struct Convolution_Config*, struct Process_Unifo
 
 /** De-allocates the state's internal data. */
 void destroy_process_state (struct Process_Uniform_State*);
+
+/**
+ * Creates a monophonic non-uniform IR.
+ *
+ * The fft_scratch pointer should be point to
+ * an array of config->fft_size floats, and should
+ * have 64-byte alignment.
+ */
+void create_nuir (struct IR_Non_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch);
+
+/**
+ * Creates a mono non-uniform IR of a given size.
+ * The IR will be filled with zeros.
+ */
+void create_zero_nuir (struct IR_Non_Uniform*, int ir_num_samples);
+
+/** Returns the required scratch size needed for this non-uniform IR. */
+size_t get_required_nuir_scratch_bytes (const struct IR_Non_Uniform*);
+
+/**
+ * Loads IR data.
+ * `ir_num_samples` must be less than or equal the number of samples
+ * the IR was created to expect.
+ */
+void load_nuir (struct IR_Non_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch);
+
+/** De-allocates the IR's internal data. */
+void destroy_nuir (struct IR_Non_Uniform*);
 
 /**
  * Performs convolution processing for a given IR and state.

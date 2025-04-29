@@ -481,7 +481,6 @@ static bool test_convolution_non_uniform (int ir_length_samples, int block_size,
     std::cout << "  chowdsp is " << ref_duration_seconds / test_duration_seconds << "x faster\n";
 
     chowdsp::fft::aligned_free (scratch);
-    chowdsp::fft::aligned_free (scratch);
     chowdsp::convolution::destroy_nuir (&conv_ir);
     chowdsp::convolution::destroy_nuir_process_state (&conv_state);
     chowdsp::convolution::destroy_config (&head_config);

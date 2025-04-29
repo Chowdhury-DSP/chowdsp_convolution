@@ -19,6 +19,13 @@ static int next_pow2 (int v) noexcept
     return v + 1;
 }
 
+static int pad_floats (int N)
+{
+    static constexpr int pad_len = 16;
+    const auto N_div =  (N + pad_len - 1) / pad_len;
+    return N_div * pad_len;
+}
+
 void create_config (Config* config, int max_block_size)
 {
     config->block_size = next_pow2 (max_block_size);
@@ -32,10 +39,16 @@ void destroy_config (Config* config)
     *config = {};
 }
 
+//================================================================================================================
 void create_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
 {
     create_zero_ir (config, ir, ir_num_samples);
     load_ir (config, ir, ir_data, ir_num_samples, fft_scratch);
+}
+
+static int get_num_segments (const Config* config, int ir_num_samples)
+{
+    return (ir_num_samples / (config->fft_size - config->block_size)) + 1;
 }
 
 void create_zero_ir (const Config* config, IR_Uniform* ir, int ir_num_samples)
@@ -43,7 +56,7 @@ void create_zero_ir (const Config* config, IR_Uniform* ir, int ir_num_samples)
     size_t bytes_needed {};
 
     const auto segment_num_samples = config->fft_size;
-    const auto num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
+    const auto num_segments = get_num_segments (config, ir_num_samples);
     ir->max_num_segments = num_segments;
     ir->num_segments = num_segments;
     bytes_needed += segment_num_samples * ir->num_segments * sizeof (float);
@@ -56,7 +69,7 @@ void load_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int ir
 {
     const auto segment_num_samples = config->fft_size;
 
-    const auto num_segments = (ir_num_samples / (config->fft_size - config->block_size)) + 1;
+    const auto num_segments = get_num_segments (config, ir_num_samples);
     assert (num_segments <= ir->max_num_segments); // IR is too large for the allocated number of segments
     ir->num_segments = num_segments;
 
@@ -83,12 +96,12 @@ void destroy_ir (IR_Uniform* ir)
     *ir = {};
 }
 
-void create_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
+//================================================================================================================
+static size_t process_state_get_bytes_needed (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
 {
     size_t bytes_needed {};
 
     const auto segment_num_samples = config->fft_size;
-
     state->max_num_segments = config->block_size > 128 ? ir->max_num_segments : 3 * ir->max_num_segments;
     bytes_needed += segment_num_samples * state->max_num_segments * sizeof (float);
 
@@ -96,7 +109,12 @@ void create_process_state (const Config* config, const IR_Uniform* ir, Process_U
     bytes_needed += config->fft_size * sizeof (float); // output data
     bytes_needed += config->fft_size * sizeof (float); // output temp data
     bytes_needed += config->fft_size * sizeof (float); // overlap data
-    auto* data = static_cast<float*> (fft::aligned_malloc (bytes_needed));
+    return bytes_needed;
+}
+
+static void process_state_partition_memory (const Config* config, Process_Uniform_State* state, float* data)
+{
+    const auto segment_num_samples = config->fft_size;
 
     state->segments = data;
     data += segment_num_samples * state->max_num_segments;
@@ -108,7 +126,13 @@ void create_process_state (const Config* config, const IR_Uniform* ir, Process_U
     data += config->fft_size;
     state->overlap_data = data;
     data += config->fft_size;
+}
 
+void create_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
+{
+    const auto bytes_needed = process_state_get_bytes_needed (config, ir, state);
+    auto* data = static_cast<float*> (fft::aligned_malloc (bytes_needed));
+    process_state_partition_memory (config, state, data);
     reset_process_state (config, state);
 }
 
@@ -134,6 +158,89 @@ void destroy_process_state (Process_Uniform_State* state)
     *state = {};
 }
 
+//================================================================================================================
+int get_required_nuir_scratch_bytes (const IR_Non_Uniform* ir)
+{
+    assert (ir->head_config != nullptr);
+    assert (ir->tail_config != nullptr);
+    return static_cast<int> ((std::max (ir->head_config->fft_size,
+                     ir->tail_config->fft_size)
+           + pad_floats (ir->head_config->block_size)) * sizeof (float));
+}
+
+void create_nuir (IR_Non_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
+{
+    create_zero_nuir (ir, ir_num_samples);
+    load_nuir (ir, ir_data, ir_num_samples, fft_scratch);
+}
+
+void create_zero_nuir (IR_Non_Uniform* ir, int ir_num_samples)
+{
+    assert (ir->head_config != nullptr);
+    assert (ir->tail_config != nullptr);
+    assert (ir->head_size >= ir->head_config->block_size);
+    assert (ir->tail_config->block_size == ir->head_size);
+    assert (ir_num_samples >= 2 * ir->head_size);
+
+    const auto head_num_segments = get_num_segments (ir->head_config, ir->head_size);
+    const auto head_segments_length = head_num_segments * ir->head_config->fft_size;
+    const auto tail_num_segments = get_num_segments (ir->tail_config, ir_num_samples - ir->head_size);
+    const auto tail_segments_length = tail_num_segments * ir->tail_config->fft_size;
+    const auto total_segments_length = head_segments_length + tail_segments_length;
+
+    auto* segment_data = static_cast<float*> (fft::aligned_malloc (total_segments_length * sizeof (float)));
+    memset (segment_data, 0, total_segments_length * sizeof (float));
+
+    ir->head.segments = segment_data;
+    ir->head.num_segments = head_num_segments;
+    ir->head.max_num_segments = head_num_segments;
+    ir->tail.segments = segment_data + head_segments_length;
+    ir->tail.num_segments = tail_num_segments;
+    ir->tail.max_num_segments = tail_num_segments;
+}
+
+void load_nuir (IR_Non_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
+{
+    load_ir (ir->head_config, &ir->head, ir_data, std::min (ir_num_samples, ir->head_size), fft_scratch);
+    load_ir (ir->tail_config, &ir->tail, ir_data + ir->head_size, std::max (ir_num_samples - ir->head_size, 0), fft_scratch);
+}
+
+void destroy_nuir (IR_Non_Uniform* ir)
+{
+    fft::aligned_free (ir->head.segments);
+    *ir = {};
+}
+
+//================================================================================================================
+void create_nuir_process_state (const IR_Non_Uniform* ir, Process_Non_Uniform_State* state)
+{
+    state->head_config = ir->head_config;
+    state->tail_config = ir->tail_config;
+
+    const auto head_bytes_needed = process_state_get_bytes_needed (state->head_config, &ir->head, &state->head);
+    const auto tail_bytes_needed = process_state_get_bytes_needed (state->tail_config, &ir->tail, &state->tail);
+    auto* data = static_cast<std::byte*> (fft::aligned_malloc (head_bytes_needed + tail_bytes_needed));
+
+    process_state_partition_memory (state->head_config, &state->head, reinterpret_cast<float*> (data));
+    process_state_partition_memory (state->tail_config, &state->tail, reinterpret_cast<float*> (data + head_bytes_needed));
+
+    reset_process_state (state->head_config, &state->head);
+    reset_process_state (state->tail_config, &state->tail);
+}
+
+void reset_nuir_process_state (Process_Non_Uniform_State* state)
+{
+    reset_process_state (state->head_config, &state->head);
+    reset_process_state (state->tail_config, &state->tail);
+}
+
+void destroy_nuir_process_state (Process_Non_Uniform_State* state)
+{
+    destroy_process_state (&state->head);
+    *state = {};
+}
+
+//================================================================================================================
 void process_samples (const Config* config,
                       const IR_Uniform* ir,
                       Process_Uniform_State* state,
@@ -361,5 +468,35 @@ void process_samples_with_latency (const Config* config,
             state->input_data_pos = 0;
         }
     }
+}
+
+void process_samples_non_uniform (const IR_Non_Uniform* ir,
+                                  Process_Non_Uniform_State* state,
+                                  const float* in,
+                                  float* out,
+                                  int N,
+                                  float* scratch)
+{
+    auto* tail_out = scratch;
+    scratch += pad_floats (N);
+
+    process_samples_with_latency (ir->tail_config,
+                                  &ir->tail,
+                                  &state->tail,
+                                  in,
+                                  tail_out,
+                                  N,
+                                  scratch);
+
+    process_samples (ir->head_config,
+                     &ir->head,
+                     &state->head,
+                     in,
+                     out,
+                     N,
+                     scratch);
+
+    for (int n = 0; n < N; ++n)
+        out[n] += tail_out[n];
 }
 } // namespace chowdsp::convolution

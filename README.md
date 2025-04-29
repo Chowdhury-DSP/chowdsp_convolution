@@ -6,7 +6,7 @@
 `chowdsp_convolution` is a library for performing frequency-domain
 convolution using [`chowdsp_fft`](https://github.com/Chowdhury-DSP/chowdsp_fft).
 The library currently supports uniformly-partitioned convolutions,
-and may support non-uniform partitioning in the future.
+as well as 2-stage non-uniformly-partitioned convolutions.
 
 **N.B.: This library is still in early development, and
 there will likely be breaking changes.** If you have

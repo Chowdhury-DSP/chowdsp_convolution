@@ -159,13 +159,13 @@ void destroy_process_state (Process_Uniform_State* state)
 }
 
 //================================================================================================================
-size_t get_required_nuir_scratch_bytes (const IR_Non_Uniform* ir)
+int get_required_nuir_scratch_bytes (const IR_Non_Uniform* ir)
 {
     assert (ir->head_config != nullptr);
     assert (ir->tail_config != nullptr);
-    return (std::max (ir->head_config->fft_size,
+    return static_cast<int> ((std::max (ir->head_config->fft_size,
                      ir->tail_config->fft_size)
-           + pad_floats (ir->head_config->block_size)) * sizeof (float);
+           + pad_floats (ir->head_config->block_size)) * sizeof (float));
 }
 
 void create_nuir (IR_Non_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)

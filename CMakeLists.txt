@@ -1,6 +1,13 @@
 cmake_minimum_required(VERSION 3.20)
 project(chowdsp_convolution VERSION 0.1.0)
 
+if(CHOWDSP_CONVOLUTION_ASAN)
+    message(STATUS "Setting flags for address sanitizer: -fsanitize=address -g")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -fsanitize=address -g")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=address -g")
+    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=address")
+endif()
+
 if(TARGET chowdsp_fft)
     get_target_property(chowdsp_fft_dir chowdsp_fft SOURCE_DIR)
     message(STATUS "Using chowdsp_fft from ${chowdsp_fft_dir}")

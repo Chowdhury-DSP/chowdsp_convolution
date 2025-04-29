@@ -117,7 +117,7 @@ void create_nuir (struct IR_Non_Uniform*, const float* ir, int ir_num_samples, f
 void create_zero_nuir (struct IR_Non_Uniform*, int ir_num_samples);
 
 /** Returns the required scratch size needed for this non-uniform IR. */
-size_t get_required_nuir_scratch_bytes (const struct IR_Non_Uniform*);
+int get_required_nuir_scratch_bytes (const struct IR_Non_Uniform*);
 
 /**
  * Loads IR data.

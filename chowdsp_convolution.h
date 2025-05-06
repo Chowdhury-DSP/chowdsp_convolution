@@ -204,7 +204,7 @@ void process_samples_with_latency (const struct Convolution_Config*,
                                    float* fft_scratch);
 
 /**
- * Performs convolution processing for a given IR and state.
+ * Performs convolution processing for a given multi-channel IR and state.
  *
  * The fft_scratch pointer should be point to
  * an array of config->fft_size floats, and should
@@ -220,7 +220,7 @@ void process_samples_multichannel (const struct Convolution_Config*,
                                    float* fft_scratch);
 
 /**
- * Similar to process_samples(), but with an added
+ * Similar to process_samples_multichannel(), but with an added
  * config->block_size samples of latency. In exchange,
  * the convolution processing will be a little bit
  * faster, especially when processing with odd block

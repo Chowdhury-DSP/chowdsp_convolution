@@ -58,7 +58,7 @@ int main()
         const float ref = i < delay_samples ? 0.0f : test_input_data[i - delay_samples];
         const float test = test_output_data[i];
         const float err = fabsf (ref - test);
-        
+
         if (err > max_error)
             max_error = err;
         error_accum += err * err;

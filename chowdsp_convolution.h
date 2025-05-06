@@ -21,25 +21,38 @@ struct Convolution_Config
 using Config = Convolution_Config;
 #endif
 
-/** State for a mono uniform-partitioned IR. */
+/** State for a uniform-partitioned IR. */
 struct IR_Uniform
 {
     float* segments;
     int num_segments;
     int max_num_segments;
+    int num_channels;
 };
 
-/** State for processing a mono uniform-partitioned IR */
+/** State for processing a uniform-partitioned IR */
 struct Process_Uniform_State
 {
-    float* segments;
-    float* input_data;
-    float* output_data;
-    float* output_temp_data;
-    float* overlap_data;
+    struct State_Data
+    {
+        float* segments;
+        float* input_data;
+        float* output_data;
+        float* output_temp_data;
+        float* overlap_data;
+    };
+    struct State_Data* state_data;
     int max_num_segments;
     int current_segment;
     int input_data_pos;
+    int num_channels;
+};
+
+/** State for processing a multi-channel uniform-partitioned IR */
+struct Process_Multichannel_Uniform_State
+{
+    struct Process_Uniform_State state;
+    int num_channels;
 };
 
 /** State for a mono non-uniform-partitioned IR. */
@@ -89,10 +102,32 @@ void create_zero_ir (const struct Convolution_Config*, struct IR_Uniform*, int i
  */
 void load_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch);
 
+/**
+ * Creates a multi-channel uniform-partitioned IR.
+ *
+ * The fft_scratch pointer should point to
+ * an array of config->fft_size floats, and should
+ * have 64-byte alignment.
+ */
+void create_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* const* ir, int ir_num_samples, int num_channels, float* fft_scratch);
+
+/**
+ * Creates a multi-channel IR of a given size.
+ * The IR will be filled with zeros.
+ */
+void create_zero_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, int num_channels);
+
+/**
+ * Loads IR data.
+ * `ir_num_samples` must be less than or equal the number of samples
+ * the IR was created to expect.
+ */
+void load_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* const* ir, int ir_num_samples, int num_channels, float* fft_scratch);
+
 /** De-allocates the IR's internal data. */
 void destroy_ir (struct IR_Uniform*);
 
-/** Creates a mono process state object for a given IR. */
+/** Creates a process state object for a given IR. */
 void create_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*);
 
 /** Zeros the process state. */
@@ -167,6 +202,38 @@ void process_samples_with_latency (const struct Convolution_Config*,
                                    float* out,
                                    int N,
                                    float* fft_scratch);
+
+/**
+ * Performs convolution processing for a given multi-channel IR and state.
+ *
+ * The fft_scratch pointer should be point to
+ * an array of config->fft_size floats, and should
+ * have 64-byte alignment.
+ */
+void process_samples_multichannel (const struct Convolution_Config*,
+                                   const struct IR_Uniform*,
+                                   struct Process_Uniform_State*,
+                                   const float* const* in,
+                                   float* const* out,
+                                   int N,
+                                   int num_channels,
+                                   float* fft_scratch);
+
+/**
+ * Similar to process_samples_multichannel(), but with an added
+ * config->block_size samples of latency. In exchange,
+ * the convolution processing will be a little bit
+ * faster, especially when processing with odd block
+ * sizes.
+ */
+void process_samples_with_latency_multichannel (const struct Convolution_Config*,
+                                                const struct IR_Uniform*,
+                                                struct Process_Uniform_State*,
+                                                const float* const* in,
+                                                float* const* out,
+                                                int N,
+                                                int num_channels,
+                                                float* fft_scratch);
 
 /**
  * Performs convolution processing for a given non-uniform IR and state.

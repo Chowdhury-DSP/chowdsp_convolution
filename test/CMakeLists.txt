@@ -34,3 +34,4 @@ endif()
 
 add_executable(chowdsp_convolution_c_test chowdsp_convolution_test.c)
 target_link_libraries(chowdsp_convolution_c_test PRIVATE chowdsp_convolution)
+target_compile_features(chowdsp_convolution_c_test PRIVATE c_std_11)

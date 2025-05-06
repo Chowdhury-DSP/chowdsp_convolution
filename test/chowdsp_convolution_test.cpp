@@ -418,6 +418,119 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     return max_error < 5.0e-4f && mse < 1.0e-9f;
 }
 
+static bool test_convolution_multi_channel (int ir_length_samples, int block_size, int num_blocks, bool latency, int num_channels)
+{
+    std::cout << "Running test with IR length: " << ir_length_samples
+              << ", block size: " << block_size
+              << ", latency: " << (latency ? "ON" : "OFF")
+              << ", # channels: " << num_channels << '\n';
+
+    std::mt19937 rng { 0x12345 };
+    auto ir = generate (ir_length_samples, rng);
+    const auto input = generate (block_size * num_blocks, rng);
+    std::vector<float> ref_output (input.size());
+
+    ConvolutionEngine reference_engine { ir.data(), ir.size(), (size_t) block_size };
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < num_blocks; ++i)
+    {
+        const auto* block_in = input.data() + (i * block_size);
+        auto* block_out_ref = ref_output.data() + (i * block_size);
+        if (latency)
+            reference_engine.processSamplesWithAddedLatency (block_in, block_out_ref, block_size);
+        else
+            reference_engine.processSamples (block_in, block_out_ref, block_size);
+    }
+    auto duration = std::chrono::high_resolution_clock::now() - start;
+    auto ref_duration_seconds = std::chrono::duration<float> (duration).count();
+    std::cout << "  juce::dsp::Convolution: " << ref_duration_seconds << " seconds" << std::endl;
+
+    std::vector<float*> multi_channel_ir {};
+    for (int ch = 0; ch < num_channels; ++ch)
+        multi_channel_ir.push_back (ir.data());
+
+    std::vector<float> test_output_flat (input.size() * num_channels);
+    std::vector<const float*> test_input { (size_t) num_channels, nullptr };
+    std::vector<float*> test_output { (size_t) num_channels, nullptr };
+
+    chowdsp::convolution::Config conv_config {};
+    chowdsp::convolution::create_config (&conv_config, block_size);
+    auto* fft_scratch = (float*) chowdsp::fft::aligned_malloc (conv_config.fft_size * sizeof (float));
+
+    chowdsp::convolution::IR_Uniform conv_ir {};
+    chowdsp::convolution::create_multichannel_ir (&conv_config,
+                                                  &conv_ir,
+                                                  multi_channel_ir.data(),
+                                                  ir_length_samples,
+                                                  num_channels,
+                                                  fft_scratch);
+
+    chowdsp::convolution::Process_Uniform_State conv_state {};
+    chowdsp::convolution::create_process_state (&conv_config, &conv_ir, &conv_state);
+
+    start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < num_blocks; ++i)
+    {
+        for (int ch = 0; ch < num_channels; ++ch)
+        {
+            test_input[ch] = input.data() + (i * block_size);
+            test_output[ch] = test_output_flat.data() + (input.size() * ch) + (i * block_size);
+        }
+
+        if (latency)
+        {
+            chowdsp::convolution::process_samples_with_latency_multichannel (
+                &conv_config,
+                &conv_ir,
+                &conv_state,
+                test_input.data(),
+                test_output.data(),
+                block_size,
+                num_channels,
+                fft_scratch);
+        }
+        else
+        {
+            chowdsp::convolution::process_samples_multichannel (&conv_config,
+                                                                &conv_ir,
+                                                                &conv_state,
+                                                                test_input.data(),
+                                                                test_output.data(),
+                                                                block_size,
+                                                                num_channels,
+                                                                fft_scratch);
+        }
+    }
+    duration = std::chrono::high_resolution_clock::now() - start;
+    auto test_duration_seconds = std::chrono::duration<float> (duration).count();
+    std::cout << "  chowdsp_convolution: " << test_duration_seconds << " seconds" << std::endl;
+    std::cout << "  chowdsp is " << ref_duration_seconds / test_duration_seconds << "x faster\n";
+
+    chowdsp::fft::aligned_free (fft_scratch);
+    chowdsp::convolution::destroy_ir (&conv_ir);
+    chowdsp::convolution::destroy_process_state (&conv_state);
+    chowdsp::convolution::destroy_config (&conv_config);
+
+    float error_accum {};
+    float max_error {};
+    for (int ch = 0; ch < num_channels; ++ch)
+    {
+        for (int i = 0; i < input.size(); ++i)
+        {
+            const auto ref = ref_output[i];
+            const auto test = test_output_flat[ch * input.size() + i];
+            const auto err = ref - test;
+            max_error = std::max (max_error, std::abs (err));
+            error_accum += err * err;
+        }
+    }
+    const auto mse = error_accum / static_cast<float> (test_output_flat.size());
+    std::cout << "  Max error: " << max_error << '\n';
+    std::cout << "  Mean-squared error: " << mse << '\n';
+
+    return max_error < 5.0e-4f && mse < 1.0e-9f;
+}
+
 static bool test_convolution_non_uniform (int ir_length_samples, int block_size, int num_blocks, int head_size)
 {
     std::cout << "Running test with IR length: " << ir_length_samples
@@ -516,6 +629,9 @@ int main()
         success &= test_convolution (100, 512, 4, latency);
         success &= test_convolution (100, 511, 4, latency);
         success &= test_convolution (100, 32, 10, latency);
+
+        success &= test_convolution_multi_channel (6000, 2048, 4, latency, 2);
+        success &= test_convolution_multi_channel (100, 32, 10, latency, 4);
     }
 
     success &= test_convolution_non_uniform (6000, 2048, 4, 2048);

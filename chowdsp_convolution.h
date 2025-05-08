@@ -127,8 +127,17 @@ void load_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*,
 /** De-allocates the IR's internal data. */
 void destroy_ir (struct IR_Uniform*);
 
-/** Creates a process state object for a given IR. */
+/**
+ * Creates a process state object for a given IR.
+ * The process state will be created to process the same number of channels as the IR contains.
+ */
 void create_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*);
+
+/**
+ * Creates a process state object for a given IR, with a specific number of channels.
+ * This is useful for convolving a monophonic IR with multiple channels.
+ */
+void create_multichannel_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, int num_channels);
 
 /** Zeros the process state. */
 void reset_process_state (const struct Convolution_Config*, struct Process_Uniform_State*);

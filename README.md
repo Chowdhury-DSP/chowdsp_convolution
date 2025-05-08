@@ -15,6 +15,8 @@ add please create a GitHub Issue.
 
 ## Usage
 
+### Basic Usage (mono IR, mono i/o, uniform partitioning)
+
 First, create a `Config` object:
 
 ```cpp
@@ -36,20 +38,16 @@ chowdsp::convolution::IR_Uniform ir {};
 chowdsp::convolution::create_ir (&config, &ir, my_ir.data(), my_ir.size());
 ```
 
-Then we'll create a convolution "state". For this example, let's assume
-we have a monophonic IR that's be used to process a stereo input.
+Then we'll create a convolution "state".
 ```cpp
-chowdsp::convolution::Process_Uniform_State left_state {};
-chowdsp::convolution::Process_Uniform_State right_state {};
-chowdsp::convolution::create_process_state (&config, &ir, &left_state);
-chowdsp::convolution::create_process_state (&config, &ir, &right_state);
+chowdsp::convolution::Process_Uniform_State state {};
+chowdsp::convolution::create_process_state (&config, &ir, &state);
 ```
 
 Now we're ready to process some data:
 
 ```cpp
-chowdsp::convolution::process_sample (&config, &ir, &left_state, left_channel_data, left_channel_data, num_samples, fft_scratch);
-chowdsp::convolution::process_sample (&config, &ir, &right_state, right_channel_data, right_channel_data, num_samples, fft_scratch);
+chowdsp::convolution::process_samples (&config, &ir, &state, data, data, num_samples, fft_scratch);
 ```
 
 Alternatively, we could use `process_samples_with_latency()` which is
@@ -59,10 +57,61 @@ Finally, let's clean up all our memory allocation:
 
 ```cpp
 chowdsp::fft::aligned_free (fft_scratch);
-chowdsp::convolution::destroy_process_state (&left_state);
-chowdsp::convolution::destroy_process_state (&right_state);
+chowdsp::convolution::destroy_process_state (&state);
 chowdsp::convolution::destroy_ir (&ir);
 chowdsp::convolution::destroy_config (&config);
+```
+
+### Multi-Channel Processing (mono IR)
+
+Let's say that you want to convolve a stereo audio stream with a mono IR.
+We can use `create_multichannel_process_state()` to create a processing state
+with a given number of channels.
+
+```cpp
+chowdsp::convolution::Process_Uniform_State stereo_state {};
+chowdsp::convolution::create_multichannel_process_state (&config, &ir, &stereo_state, 2);
+```
+
+To process our audio, we'll want to use `process_samples_multichannel()`
+(or `process_samples_multichannel_with_latency()`).
+
+```cpp
+float* channel_data[2] {
+    left_channel_data,
+    right_channel_data,
+};
+chowdsp::convolution::process_samples_multichannel (&config, &ir, &state, channel_data, channel_data, num_samples, 2, fft_scratch);
+```
+
+### Multi-Channel IRs
+
+let's create a stereo, uniform-partitioned IR:
+
+```cpp
+float* ir_data[2] {
+    left_ir_data,
+    right_ir-data,
+};
+chowdsp::convolution::IR_Uniform ir {};
+chowdsp::convolution::create_multichannel_ir (&config, &ir, ir_data, ir_num_samples, 2, fft_scratch);
+```
+
+Now if we call `create_process_state()`, the state will automatically be created
+for the same number of channels as the IR.
+```cpp
+chowdsp::convolution::Process_Uniform_State state {};
+chowdsp::convolution::create_process_state (&config, &ir, &state);
+```
+
+Then (as before), we can do our multi-channel processing:
+
+```cpp
+float* channel_data[2] {
+    left_channel_data,
+    right_channel_data,
+};
+chowdsp::convolution::process_samples_multichannel (&config, &ir, &state, channel_data, channel_data, num_samples, 2, fft_scratch);
 ```
 
 ### Multi-Threaded Usage
@@ -79,7 +128,7 @@ thread is still running? The basic idea is that you should:
 Note that the `Config` object is thread-safe, so you may use the
 same config on both your audio thread and background thread (e.g.
 when calling `create_ir()` or `load_ir()`). However, the `fft_scratch`
-is not thread-safe, so make sure to allocate a dedicated `fft_scratch`
+is **not** thread-safe, so make sure to allocate a dedicated `fft_scratch`
 for each thread.
 
 ## License

@@ -418,12 +418,18 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     return max_error < 5.0e-4f && mse < 1.0e-9f;
 }
 
-static bool test_convolution_multi_channel (int ir_length_samples, int block_size, int num_blocks, bool latency, int num_channels)
+static bool test_convolution_multi_channel (int ir_length_samples,
+                                            int block_size,
+                                            int num_blocks,
+                                            bool latency,
+                                            int num_channels,
+                                            bool mono_ir)
 {
     std::cout << "Running test with IR length: " << ir_length_samples
               << ", block size: " << block_size
               << ", latency: " << (latency ? "ON" : "OFF")
-              << ", # channels: " << num_channels << '\n';
+              << ", # channels: " << num_channels
+              << ", mono IR: " << (mono_ir ? "ON" : "OFF") << '\n';
 
     std::mt19937 rng { 0x12345 };
     auto ir = generate (ir_length_samples, rng);
@@ -458,15 +464,26 @@ static bool test_convolution_multi_channel (int ir_length_samples, int block_siz
     auto* fft_scratch = (float*) chowdsp::fft::aligned_malloc (conv_config.fft_size * sizeof (float));
 
     chowdsp::convolution::IR_Uniform conv_ir {};
-    chowdsp::convolution::create_multichannel_ir (&conv_config,
-                                                  &conv_ir,
-                                                  multi_channel_ir.data(),
-                                                  ir_length_samples,
-                                                  num_channels,
-                                                  fft_scratch);
+    if (mono_ir)
+    {
+        chowdsp::convolution::create_ir (&conv_config,
+                                         &conv_ir,
+                                         ir.data(),
+                                         ir_length_samples,
+                                         fft_scratch);
+    }
+    else
+    {
+        chowdsp::convolution::create_multichannel_ir (&conv_config,
+                                                      &conv_ir,
+                                                      multi_channel_ir.data(),
+                                                      ir_length_samples,
+                                                      num_channels,
+                                                      fft_scratch);
+    }
 
     chowdsp::convolution::Process_Uniform_State conv_state {};
-    chowdsp::convolution::create_process_state (&conv_config, &conv_ir, &conv_state);
+    chowdsp::convolution::create_multichannel_process_state (&conv_config, &conv_ir, &conv_state, num_channels);
 
     start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_blocks; ++i)
@@ -560,8 +577,7 @@ static bool test_convolution_non_uniform (int ir_length_samples, int block_size,
     chowdsp::convolution::Config tail_config {};
     chowdsp::convolution::create_config (&tail_config, head_size);
 
-    chowdsp::convolution::IR_Non_Uniform conv_ir
-    {
+    chowdsp::convolution::IR_Non_Uniform conv_ir {
         .head_config = &head_config,
         .tail_config = &tail_config,
         .head_size = head_size,
@@ -630,8 +646,10 @@ int main()
         success &= test_convolution (100, 511, 4, latency);
         success &= test_convolution (100, 32, 10, latency);
 
-        success &= test_convolution_multi_channel (6000, 2048, 4, latency, 2);
-        success &= test_convolution_multi_channel (100, 32, 10, latency, 4);
+        success &= test_convolution_multi_channel (6000, 2048, 4, latency, 2, false);
+        success &= test_convolution_multi_channel (100, 32, 10, latency, 4, false);
+        success &= test_convolution_multi_channel (6000, 512, 4, latency, 2, true);
+        success &= test_convolution_multi_channel (100, 511, 10, latency, 4, true);
     }
 
     success &= test_convolution_non_uniform (6000, 2048, 4, 2048);

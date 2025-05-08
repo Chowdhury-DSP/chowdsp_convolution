@@ -22,7 +22,7 @@ static int next_pow2 (int v) noexcept
 static int pad_floats (int N)
 {
     static constexpr int pad_len = 16;
-    const auto N_div =  (N + pad_len - 1) / pad_len;
+    const auto N_div = (N + pad_len - 1) / pad_len;
     return N_div * pad_len;
 }
 
@@ -130,8 +130,7 @@ void load_multichannel_ir (const Config* config, IR_Uniform* ir, const float* co
 
     for (int ch = 0; ch < num_channels; ++ch)
     {
-        IR_Uniform this_channel_ir
-        {
+        IR_Uniform this_channel_ir {
             .segments = get_segment (config, ir->segments, ch * ir->max_num_segments),
             .num_segments = ir->num_segments,
             .max_num_segments = ir->max_num_segments,
@@ -147,7 +146,6 @@ static size_t state_data_bytes_needed (const Config* config, const IR_Uniform* i
     size_t bytes_needed {};
 
     const auto segment_num_samples = config->fft_size;
-    state->num_channels = ir->num_channels;
     state->max_num_segments = config->block_size > 128 ? ir->max_num_segments : 3 * ir->max_num_segments;
     bytes_needed += segment_num_samples * state->max_num_segments * sizeof (float);
 
@@ -174,9 +172,10 @@ static void state_data_partition_memory (const Config* config, Process_Uniform_S
     data += config->fft_size;
 }
 
-void create_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
+void create_multichannel_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state, int num_channels)
 {
     using State_Data = Process_Uniform_State::State_Data;
+    state->num_channels = num_channels;
     const auto state_bytes_needed = state_data_bytes_needed (config, ir, state);
     auto* data = fft::aligned_malloc (state_bytes_needed + state->num_channels * sizeof (State_Data));
     state->state_data = reinterpret_cast<State_Data*> (static_cast<std::byte*> (data) + state_bytes_needed);
@@ -187,6 +186,11 @@ void create_process_state (const Config* config, const IR_Uniform* ir, Process_U
     assert (static_cast<void*> (float_data) == static_cast<void*> (state->state_data));
 
     reset_process_state (config, state);
+}
+
+void create_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
+{
+    create_multichannel_process_state (config, ir, state, ir->num_channels);
 }
 
 void reset_process_state (const Config* config, Process_Uniform_State* state)
@@ -221,8 +225,9 @@ int get_required_nuir_scratch_bytes (const IR_Non_Uniform* ir)
     assert (ir->head_config != nullptr);
     assert (ir->tail_config != nullptr);
     return static_cast<int> ((std::max (ir->head_config->fft_size,
-                     ir->tail_config->fft_size)
-           + pad_floats (ir->head_config->block_size)) * sizeof (float));
+                                        ir->tail_config->fft_size)
+                              + pad_floats (ir->head_config->block_size))
+                             * sizeof (float));
 }
 
 void create_nuir (IR_Non_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
@@ -275,7 +280,9 @@ void create_nuir_process_state (const IR_Non_Uniform* ir, Process_Non_Uniform_St
 {
     using State_Data = Process_Uniform_State::State_Data;
 
+    state->head.num_channels = 1; // @TODO
     state->head_config = ir->head_config;
+    state->tail.num_channels = 1; // @TODO
     state->tail_config = ir->tail_config;
 
     const auto head_state_bytes_needed = state_data_bytes_needed (state->head_config, &ir->head, &state->head);
@@ -284,7 +291,7 @@ void create_nuir_process_state (const IR_Non_Uniform* ir, Process_Non_Uniform_St
     state->head.state_data = reinterpret_cast<State_Data*> (static_cast<std::byte*> (data) + head_state_bytes_needed + tail_state_bytes_needed);
     state->tail.state_data = state->head.state_data + 1;
 
-    auto* float_data = static_cast<float*>(data);
+    auto* float_data = static_cast<float*> (data);
 
     state_data_partition_memory (state->head_config, &state->head, state->head.state_data[0], float_data);
     state_data_partition_memory (state->tail_config, &state->tail, state->tail.state_data[0], float_data);
@@ -570,21 +577,21 @@ static void process_multichannel (const Config* config,
                                   float* fft_scratch,
                                   bool with_latency)
 {
-    assert (state->num_channels == ir->num_channels);
+    assert (ir->num_channels == 1 || ir->num_channels == state->num_channels);
     assert (state->num_channels == num_channels);
 
     for (int ch = 0; ch < num_channels; ++ch)
     {
-        IR_Uniform mono_ir
-        {
-            .segments = get_segment (config, ir->segments, ch * ir->max_num_segments),
+        IR_Uniform mono_ir {
+            .segments = ir->num_channels == 1
+                            ? ir->segments
+                            : get_segment (config, ir->segments, ch * ir->max_num_segments),
             .num_segments = ir->num_segments,
             .max_num_segments = ir->max_num_segments,
             .num_channels = 1,
         };
 
-        Process_Uniform_State mono_state
-        {
+        Process_Uniform_State mono_state {
             .state_data = state->state_data + ch,
             .max_num_segments = state->max_num_segments,
             .current_segment = state->current_segment,

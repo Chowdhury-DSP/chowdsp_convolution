@@ -91,7 +91,7 @@ let's create a stereo, uniform-partitioned IR:
 ```cpp
 float* ir_data[2] {
     left_ir_data,
-    right_ir-data,
+    right_ir_data,
 };
 chowdsp::convolution::IR_Uniform ir {};
 chowdsp::convolution::create_multichannel_ir (&config, &ir, ir_data, ir_num_samples, 2, fft_scratch);

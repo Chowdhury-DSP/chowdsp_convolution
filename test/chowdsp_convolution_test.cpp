@@ -658,12 +658,10 @@ int main()
     success &= test_convolution_non_uniform (6000, 32, 400, 1024);
     success &= test_convolution_non_uniform (200, 32, 10, 64);
 
-#if BUILD_RELEASE
     std::cout << "Speed comparisons:\n";
     success &= test_convolution (48'000, 512, 10'000, false);
     success &= test_convolution (48'000, 512, 10'000, true);
     success &= test_convolution_non_uniform (48'000, 512, 10'000, 2048);
-#endif
 
     return success ? 0 : 1;
 }

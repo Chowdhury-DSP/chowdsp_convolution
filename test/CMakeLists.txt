@@ -1,6 +1,11 @@
 include(${CMAKE_CURRENT_SOURCE_DIR}/../cmake/CPM.cmake)
 
-CPMAddPackage("gh:juce-framework/juce#8.0.6")
+CPMAddPackage(
+    NAME juce
+    GIT_REPOSITORY https://github.com/juce-framework/juce
+    GIT_TAG 8.0.7
+    OPTIONS "JUCE_MODULES_ONLY ON"
+)
 CPMAddPackage("gh:Chowdhury-DSP/chowdsp_utils#next")
 CPMAddPackage("gh:Chowdhury-DSP/chowdsp_fft#main")
 

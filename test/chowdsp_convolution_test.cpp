@@ -351,10 +351,12 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
 
     std::vector<float> test_output (input.size());
     chowdsp::convolution::Config conv_config {};
+    chowdsp::convolution::destroy_config (&conv_config); // destroying an empty config should be okay...
     chowdsp::convolution::create_config (&conv_config, block_size);
     auto* fft_scratch = (float*) chowdsp::fft::aligned_malloc (conv_config.fft_size * sizeof (float));
 
     chowdsp::convolution::IR_Uniform conv_ir {};
+    chowdsp::convolution::destroy_ir (&conv_ir); // destroying an empty IR should be okay...
     chowdsp::convolution::create_ir (&conv_config,
                                      &conv_ir,
                                      ir.data(),
@@ -362,6 +364,7 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
                                      fft_scratch);
 
     chowdsp::convolution::Process_Uniform_State conv_state {};
+    chowdsp::convolution::destroy_process_state (&conv_state); // destroying an empty state should be okay...
     chowdsp::convolution::create_process_state (&conv_config, &conv_ir, &conv_state);
 
     start = std::chrono::high_resolution_clock::now();
@@ -577,11 +580,11 @@ static bool test_convolution_non_uniform (int ir_length_samples, int block_size,
     chowdsp::convolution::Config tail_config {};
     chowdsp::convolution::create_config (&tail_config, head_size);
 
-    chowdsp::convolution::IR_Non_Uniform conv_ir {
-        .head_config = &head_config,
-        .tail_config = &tail_config,
-        .head_size = head_size,
-    };
+    chowdsp::convolution::IR_Non_Uniform conv_ir {};
+    chowdsp::convolution::destroy_nuir (&conv_ir);
+    conv_ir.head_config = &head_config;
+    conv_ir.tail_config = &tail_config;
+    conv_ir.head_size = head_size;
     auto* scratch = (float*) chowdsp::fft::aligned_malloc (chowdsp::convolution::get_required_nuir_scratch_bytes (&conv_ir));
 
     chowdsp::convolution::create_nuir (&conv_ir,
@@ -590,6 +593,7 @@ static bool test_convolution_non_uniform (int ir_length_samples, int block_size,
                                        scratch);
 
     chowdsp::convolution::Process_Non_Uniform_State conv_state {};
+    chowdsp::convolution::destroy_nuir_process_state (&conv_state); // destroying an empty state should be okay...
     chowdsp::convolution::create_nuir_process_state (&conv_ir, &conv_state);
 
     start = std::chrono::high_resolution_clock::now();

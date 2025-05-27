@@ -35,7 +35,8 @@ void create_config (Config* config, int max_block_size)
 
 void destroy_config (Config* config)
 {
-    fft::fft_destroy_setup (config->fft);
+    if (config->fft != nullptr)
+        fft::fft_destroy_setup (config->fft);
     *config = {};
 }
 
@@ -215,7 +216,8 @@ void reset_process_state (const Config* config, Process_Uniform_State* state)
 
 void destroy_process_state (Process_Uniform_State* state)
 {
-    fft::aligned_free (state->state_data[0].segments);
+    if (state->state_data != nullptr)
+        fft::aligned_free (state->state_data[0].segments);
     *state = {};
 }
 

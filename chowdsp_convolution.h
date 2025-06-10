@@ -142,6 +142,9 @@ void create_multichannel_process_state (const struct Convolution_Config*, const 
 /** Zeros the process state. */
 void reset_process_state (const struct Convolution_Config*, struct Process_Uniform_State*);
 
+/** Zeros the process state. */
+void reset_process_state_segments (const struct Convolution_Config*, struct Process_Uniform_State*, const struct IR_Uniform*);
+
 /** De-allocates the state's internal data. */
 void destroy_process_state (struct Process_Uniform_State*);
 

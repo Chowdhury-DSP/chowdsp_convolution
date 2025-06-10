@@ -88,16 +88,15 @@ void load_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int ir
     for (int seg_idx = 0; seg_idx < ir->num_segments; ++seg_idx)
     {
         float* segment = get_segment (config, ir->segments, seg_idx);
-        memcpy (segment,
-                ir_data + current_ptr,
-                std::min (config->fft_size - config->block_size, ir_num_samples - current_ptr) * sizeof (float));
+        const auto segment_n = std::min (config->fft_size - config->block_size, ir_num_samples - current_ptr);
+        memcpy (segment, ir_data + current_ptr, segment_n * sizeof (float));
+        memset (segment + segment_n, 0, (config->fft_size - segment_n) * sizeof (float));
         fft::fft_transform_unordered (config->fft,
                                       segment,
                                       segment,
                                       fft_scratch,
                                       fft::FFT_FORWARD);
-
-        current_ptr += config->fft_size - config->block_size;
+        current_ptr += segment_n;
     }
 }
 
@@ -129,6 +128,7 @@ void load_multichannel_ir (const Config* config, IR_Uniform* ir, const float* co
 {
     assert (num_channels == ir->num_channels);
 
+    int new_num_segments = 0;
     for (int ch = 0; ch < num_channels; ++ch)
     {
         IR_Uniform this_channel_ir {
@@ -138,7 +138,9 @@ void load_multichannel_ir (const Config* config, IR_Uniform* ir, const float* co
             .num_channels = 1,
         };
         load_ir (config, &this_channel_ir, ir_data[ch], ir_num_samples, fft_scratch);
+        new_num_segments = this_channel_ir.num_segments;
     }
+    ir->num_segments = new_num_segments;
 }
 
 //================================================================================================================
@@ -211,6 +213,18 @@ void reset_process_state (const Config* config, Process_Uniform_State* state)
         memset (state_data.output_data, 0, config->fft_size * sizeof (float));
         memset (state_data.output_temp_data, 0, config->fft_size * sizeof (float));
         memset (state_data.overlap_data, 0, config->fft_size * sizeof (float));
+    }
+}
+
+void reset_process_state_segments (const Convolution_Config* config, Process_Uniform_State* state, const IR_Uniform* ir)
+{
+    const auto segment_num_samples = config->fft_size;
+    for (int ch = 0; ch < state->num_channels; ++ch)
+    {
+        auto& state_data = state->state_data[ch];
+        memset (state_data.segments + segment_num_samples * ir->num_segments,
+                0,
+                segment_num_samples * (state->max_num_segments - ir->num_segments) * sizeof (float));
     }
 }
 

@@ -112,9 +112,13 @@ void create_ir (const struct Convolution_Config*, struct IR_Uniform*, const floa
  */
 void create_zero_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples);
 
-// @TODO: docs!
+/** Returns the number of bytes required for `create_ir_preallocated()` */
 size_t ir_bytes_required (int max_block_size, int ir_num_samples);
+
+/** Same as `create_ir()`, but using a pre-allocated block of memory */
 void create_ir_preallocated (const struct Convolution_Config*, struct IR_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch, void* data);
+
+/** Same as `create_zero_ir()`, but using a pre-allocated block of memory */
 void create_zero_ir_preallocated (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, void* data);
 
 /**
@@ -139,9 +143,13 @@ void create_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform
  */
 void create_zero_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, int num_channels);
 
-// @TODO: docs!
+/** Returns the number of bytes required for `create_multichannel_ir_preallocated()` */
 size_t multichannel_ir_bytes_required (int max_block_size, int ir_num_samples, int num_channels);
+
+/** Same as `create_multichannel_ir()`, but using a pre-allocated block of memory */
 void create_multichannel_ir_preallocated (const struct Convolution_Config*, struct IR_Uniform*, const float* const* ir_data, int ir_num_samples, int num_channels, float* fft_scratch, void* data);
+
+/** Same as `create_zero_multichannel_ir()`, but using a pre-allocated block of memory */
 void create_zero_multichannel_ir_preallocated (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, int num_channels, void* data);
 
 /**
@@ -166,10 +174,16 @@ void create_process_state (const struct Convolution_Config*, const struct IR_Uni
  */
 void create_multichannel_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, int num_channels);
 
-// @TODO: docs!
+/** Returns the number of bytes required for `create_process_state_preallocated()` */
 size_t process_state_bytes_required (int fft_size, int block_size, int ir_num_samples);
-size_t multichannel_process_state_bytes_required (int fft_size, int block_size, int ir_num_samples, int num_channels);
+
+/** Same as `create_process_state()`, but using a pre-allocated block of memory */
 void create_process_state_preallocated (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, void* data);
+
+/** Returns the number of bytes required for `create_multichannel_process_state_preallocated()` */
+size_t multichannel_process_state_bytes_required (int fft_size, int block_size, int ir_num_samples, int num_channels);
+
+/** Same as `create_multichannel_process_state()`, but using a pre-allocated block of memory */
 void create_multichannel_process_state_preallocated (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, int num_channels, void* data);
 
 /** Zeros the process state. */

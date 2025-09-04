@@ -1,10 +1,15 @@
 #pragma once
 
 #ifdef __cplusplus
+#include <cstddef>
+
 extern "C"
 {
 namespace chowdsp::convolution
 {
+#else
+#include <stddef.h>
+#include <stdbool.h>
 #endif
 
 /**
@@ -40,8 +45,7 @@ struct Process_Uniform_State
         float* output_data;
         float* output_temp_data;
         float* overlap_data;
-    };
-    struct State_Data* state_data;
+    }* state_data;
     int max_num_segments;
     int current_segment;
     int input_data_pos;
@@ -76,6 +80,16 @@ struct Process_Non_Uniform_State
 
 /** Creates a convolution config for a given maximum block size */
 void create_config (struct Convolution_Config*, int max_block_size);
+
+/** Returns the number of bytes required for `create_config_preallocated()` */
+size_t config_bytes_required (int max_block_size);
+
+/**
+ * Same as `create_config()` but using a pre-allocated block of memory.
+ * Rather than calling `destroy_config()`, the user is responsible for
+ * de-allocating the memory when appropriate.
+ */
+void create_config_preallocated (struct Convolution_Config*, int max_block_size, void* data);
 
 /** De-allocates the config's internal data. */
 void destroy_config (struct Convolution_Config*);

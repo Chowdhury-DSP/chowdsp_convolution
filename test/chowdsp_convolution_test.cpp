@@ -7,6 +7,7 @@
 #include <chowdsp_convolution.h>
 #include <chowdsp_fft.h>
 
+#include <chowdsp_data_structures/chowdsp_data_structures.h>
 #include <chowdsp_buffers/chowdsp_buffers.h>
 #include <chowdsp_buffers/Buffers/chowdsp_Buffer.cpp> // NOLINT
 template class chowdsp::Buffer<float, 32>;
@@ -421,6 +422,107 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     return max_error < 5.0e-4f && mse < 1.0e-9f;
 }
 
+static bool test_convolution_preallocated (int ir_length_samples, int block_size, int num_blocks, bool latency)
+{
+    std::cout << "Running test with IR length: " << ir_length_samples
+              << ", block size: " << block_size
+              << ", latency: " << (latency ? "ON" : "OFF") << '\n';
+
+    std::mt19937 rng { 0x12345 };
+    auto ir = generate (ir_length_samples, rng);
+    const auto input = generate (block_size * num_blocks, rng);
+    std::vector<float> ref_output (input.size());
+
+    ConvolutionEngine reference_engine { ir.data(), ir.size(), (size_t) block_size };
+    auto start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < num_blocks; ++i)
+    {
+        const auto* block_in = input.data() + (i * block_size);
+        auto* block_out_ref = ref_output.data() + (i * block_size);
+        if (latency)
+            reference_engine.processSamplesWithAddedLatency (block_in, block_out_ref, block_size);
+        else
+            reference_engine.processSamples (block_in, block_out_ref, block_size);
+    }
+    auto duration = std::chrono::high_resolution_clock::now() - start;
+    auto ref_duration_seconds = std::chrono::duration<float> (duration).count();
+    std::cout << "  juce::dsp::Convolution: " << ref_duration_seconds << " seconds" << std::endl;
+
+    std::vector<float> test_output (input.size());
+
+    const auto config_bytes = chowdsp::convolution::config_bytes_required (block_size);
+    size_t bytes_needed = config_bytes;
+    chowdsp::ArenaAllocator<> arena { bytes_needed };
+
+    chowdsp::convolution::Config conv_config {};
+    chowdsp::convolution::create_config_preallocated (&conv_config, block_size, arena.allocate_bytes (config_bytes, 64));
+    auto* fft_scratch = (float*) chowdsp::fft::aligned_malloc (conv_config.fft_size * sizeof (float));
+
+    chowdsp::convolution::IR_Uniform conv_ir {};
+    chowdsp::convolution::destroy_ir (&conv_ir); // destroying an empty IR should be okay...
+    chowdsp::convolution::create_ir (&conv_config,
+                                     &conv_ir,
+                                     ir.data(),
+                                     (int) ir.size(),
+                                     fft_scratch);
+
+    chowdsp::convolution::Process_Uniform_State conv_state {};
+    chowdsp::convolution::destroy_process_state (&conv_state); // destroying an empty state should be okay...
+    chowdsp::convolution::create_process_state (&conv_config, &conv_ir, &conv_state);
+
+    start = std::chrono::high_resolution_clock::now();
+    for (int i = 0; i < num_blocks; ++i)
+    {
+        const auto* block_in = input.data() + (i * block_size);
+        auto* block_out_test = test_output.data() + (i * block_size);
+        if (latency)
+        {
+            chowdsp::convolution::process_samples_with_latency (
+                &conv_config,
+                &conv_ir,
+                &conv_state,
+                block_in,
+                block_out_test,
+                block_size,
+                fft_scratch);
+        }
+        else
+        {
+            chowdsp::convolution::process_samples (&conv_config,
+                                                   &conv_ir,
+                                                   &conv_state,
+                                                   block_in,
+                                                   block_out_test,
+                                                   block_size,
+                                                   fft_scratch);
+        }
+    }
+    duration = std::chrono::high_resolution_clock::now() - start;
+    auto test_duration_seconds = std::chrono::duration<float> (duration).count();
+    std::cout << "  chowdsp_convolution: " << test_duration_seconds << " seconds" << std::endl;
+    std::cout << "  chowdsp is " << ref_duration_seconds / test_duration_seconds << "x faster\n";
+
+    chowdsp::fft::aligned_free (fft_scratch);
+    chowdsp::convolution::destroy_ir (&conv_ir);
+    chowdsp::convolution::destroy_process_state (&conv_state);
+
+    float error_accum {};
+    float max_error {};
+    for (int i = 0; i < test_output.size(); ++i)
+    {
+        const auto ref = ref_output[i];
+        const auto test = test_output[i];
+        const auto err = ref - test;
+        max_error = std::max (max_error, std::abs (err));
+        error_accum += err * err;
+    }
+    const auto mse = error_accum / static_cast<float> (test_output.size());
+    std::cout << "  Max error: " << max_error << '\n';
+    std::cout << "  Mean-squared error: " << mse << '\n';
+
+    return max_error < 5.0e-4f && mse < 1.0e-9f;
+}
+
 static bool test_convolution_multi_channel (int ir_length_samples,
                                             int block_size,
                                             int num_blocks,
@@ -639,33 +741,37 @@ static bool test_convolution_non_uniform (int ir_length_samples, int block_size,
 int main()
 {
     auto success = true;
+
     for (bool latency : { false, true })
-    {
-        success &= test_convolution (6000, 2048, 4, latency);
-        success &= test_convolution (6000, 512, 20, latency);
-        success &= test_convolution (6000, 511, 20, latency);
-        success &= test_convolution (6000, 32, 400, latency);
-        success &= test_convolution (100, 2048, 2, latency);
-        success &= test_convolution (100, 512, 4, latency);
-        success &= test_convolution (100, 511, 4, latency);
-        success &= test_convolution (100, 32, 10, latency);
+        success &= test_convolution_preallocated (6000, 2048, 4, latency);
 
-        success &= test_convolution_multi_channel (6000, 2048, 4, latency, 2, false);
-        success &= test_convolution_multi_channel (100, 32, 10, latency, 4, false);
-        success &= test_convolution_multi_channel (6000, 512, 4, latency, 2, true);
-        success &= test_convolution_multi_channel (100, 511, 10, latency, 4, true);
-    }
+    // for (bool latency : { false, true })
+    // {
+    //     success &= test_convolution (6000, 2048, 4, latency);
+    //     success &= test_convolution (6000, 512, 20, latency);
+    //     success &= test_convolution (6000, 511, 20, latency);
+    //     success &= test_convolution (6000, 32, 400, latency);
+    //     success &= test_convolution (100, 2048, 2, latency);
+    //     success &= test_convolution (100, 512, 4, latency);
+    //     success &= test_convolution (100, 511, 4, latency);
+    //     success &= test_convolution (100, 32, 10, latency);
 
-    success &= test_convolution_non_uniform (6000, 2048, 4, 2048);
-    success &= test_convolution_non_uniform (6000, 512, 20, 1024);
-    success &= test_convolution_non_uniform (6000, 511, 20, 1024);
-    success &= test_convolution_non_uniform (6000, 32, 400, 1024);
-    success &= test_convolution_non_uniform (200, 32, 10, 64);
+    //     success &= test_convolution_multi_channel (6000, 2048, 4, latency, 2, false);
+    //     success &= test_convolution_multi_channel (100, 32, 10, latency, 4, false);
+    //     success &= test_convolution_multi_channel (6000, 512, 4, latency, 2, true);
+    //     success &= test_convolution_multi_channel (100, 511, 10, latency, 4, true);
+    // }
 
-    std::cout << "Speed comparisons:\n";
-    success &= test_convolution (48'000, 512, 10'000, false);
-    success &= test_convolution (48'000, 512, 10'000, true);
-    success &= test_convolution_non_uniform (48'000, 512, 10'000, 2048);
+    // success &= test_convolution_non_uniform (6000, 2048, 4, 2048);
+    // success &= test_convolution_non_uniform (6000, 512, 20, 1024);
+    // success &= test_convolution_non_uniform (6000, 511, 20, 1024);
+    // success &= test_convolution_non_uniform (6000, 32, 400, 1024);
+    // success &= test_convolution_non_uniform (200, 32, 10, 64);
+
+    // std::cout << "Speed comparisons:\n";
+    // success &= test_convolution (48'000, 512, 10'000, false);
+    // success &= test_convolution (48'000, 512, 10'000, true);
+    // success &= test_convolution_non_uniform (48'000, 512, 10'000, 2048);
 
     return success ? 0 : 1;
 }

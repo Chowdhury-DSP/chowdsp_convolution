@@ -26,11 +26,29 @@ static int pad_floats (int N)
     return N_div * pad_len;
 }
 
+static auto get_block_and_fft_sizes (int max_block_size)
+{
+    const auto block_size = next_pow2 (max_block_size);
+    const auto fft_size = block_size > 128 ? 2 * block_size : 4 * block_size;
+    return std::make_tuple (block_size, fft_size);
+}
+
 void create_config (Config* config, int max_block_size)
 {
-    config->block_size = next_pow2 (max_block_size);
-    config->fft_size = config->block_size > 128 ? 2 * config->block_size : 4 * config->block_size;
+    std::tie (config->block_size, config->fft_size) = get_block_and_fft_sizes (max_block_size);
     config->fft = fft::fft_new_setup (config->fft_size, fft::FFT_REAL);
+}
+
+size_t config_bytes_required (int max_block_size)
+{
+    const auto [block_size, fft_size] = get_block_and_fft_sizes (max_block_size);
+    return fft::fft_bytes_required (fft_size, fft::FFT_REAL);
+}
+
+void create_config_preallocated (struct Convolution_Config* config, int max_block_size, void* data)
+{
+    std::tie (config->block_size, config->fft_size) = get_block_and_fft_sizes (max_block_size);
+    config->fft = fft::fft_new_setup_preallocated (config->fft_size, fft::FFT_REAL, data);
 }
 
 void destroy_config (Config* config)

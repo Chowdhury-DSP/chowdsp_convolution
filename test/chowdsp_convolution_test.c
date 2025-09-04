@@ -66,6 +66,7 @@ int main()
     const float mse = error_accum / (float) data_size;
     printf("Max Error: %f\n", max_error);
     printf("Mean-squared: %f\n", mse);
+    printf("COMPLETE!\n");
 
     // cleanup
     free (test_input_data);

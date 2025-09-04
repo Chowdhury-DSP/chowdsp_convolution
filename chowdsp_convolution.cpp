@@ -26,11 +26,24 @@ static int pad_floats (int N)
     return N_div * pad_len;
 }
 
+static int pad_bytes (int N)
+{
+    static constexpr int pad_len = 64;
+    const auto N_div = (N + pad_len - 1) / pad_len;
+    return N_div * pad_len;
+}
+
 static auto get_block_and_fft_sizes (int max_block_size)
 {
     const auto block_size = next_pow2 (max_block_size);
     const auto fft_size = block_size > 128 ? 2 * block_size : 4 * block_size;
     return std::make_tuple (block_size, fft_size);
+}
+
+int convolution_fft_size (int max_block_size)
+{
+    [[maybe_unused]] const auto [block_size, fft_size] = get_block_and_fft_sizes (max_block_size);
+    return fft_size;
 }
 
 void create_config (Config* config, int max_block_size)
@@ -65,9 +78,14 @@ void create_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int 
     load_ir (config, ir, ir_data, ir_num_samples, fft_scratch);
 }
 
+static int get_num_segments (int fft_size, int block_size, int ir_num_samples)
+{
+    return (ir_num_samples / (fft_size - block_size)) + 1;
+}
+
 static int get_num_segments (const Config* config, int ir_num_samples)
 {
-    return (ir_num_samples / (config->fft_size - config->block_size)) + 1;
+    return get_num_segments (config->fft_size, config->block_size, ir_num_samples);
 }
 
 static float* get_segment (const Config* config, float* segments, int segment_idx)
@@ -75,22 +93,46 @@ static float* get_segment (const Config* config, float* segments, int segment_id
     return segments + config->fft_size * segment_idx;
 }
 
-static void create_zero_ir_num_segments (const Config* config, IR_Uniform* ir, int num_segments)
+static void create_zero_ir_num_segments (const Config* config, IR_Uniform* ir, int num_segments, void* data)
 {
-    size_t bytes_needed {};
-
     const auto segment_num_samples = config->fft_size;
     ir->max_num_segments = num_segments;
     ir->num_segments = num_segments;
-    bytes_needed += segment_num_samples * ir->num_segments * sizeof (float);
 
-    ir->segments = static_cast<float*> (fft::aligned_malloc (bytes_needed));
+    ir->segments = static_cast<float*> (data);
     memset (ir->segments, 0, ir->num_segments * segment_num_samples * sizeof (float));
+}
+
+static void create_zero_ir_num_segments (const Config* config, IR_Uniform* ir, int num_segments)
+{
+    const auto segment_num_samples = config->fft_size;
+    size_t bytes_needed = segment_num_samples * num_segments * sizeof (float);
+    create_zero_ir_num_segments (config, ir, num_segments, fft::aligned_malloc (bytes_needed));
+}
+
+size_t ir_bytes_required (int max_block_size, int ir_num_samples)
+{
+    const auto [block_size, fft_size] = get_block_and_fft_sizes (max_block_size);
+    const auto num_segments = get_num_segments (fft_size, block_size, ir_num_samples);
+    const auto segment_num_samples = fft_size;
+    return segment_num_samples * num_segments * sizeof (float);
 }
 
 void create_zero_ir (const Config* config, IR_Uniform* ir, int ir_num_samples)
 {
     create_zero_ir_num_segments (config, ir, get_num_segments (config, ir_num_samples));
+    ir->num_channels = 1;
+}
+
+void create_ir_preallocated (const Config* config, IR_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch, void* data)
+{
+    create_zero_ir_preallocated (config, ir, ir_num_samples, data);
+    load_ir (config, ir, ir_data, ir_num_samples, fft_scratch);
+}
+
+void create_zero_ir_preallocated (const Config* config, struct IR_Uniform* ir, int ir_num_samples, void* data)
+{
+    create_zero_ir_num_segments (config, ir, get_num_segments (config, ir_num_samples), data);
     ir->num_channels = 1;
 }
 
@@ -142,6 +184,29 @@ void create_zero_multichannel_ir (const Config* config, IR_Uniform* ir, int ir_n
     ir->num_channels = num_channels;
 }
 
+size_t multichannel_ir_bytes_required (int max_block_size, int ir_num_samples, int num_channels)
+{
+    return ir_bytes_required (max_block_size, ir_num_samples) * num_channels;
+}
+
+void create_multichannel_ir_preallocated (const Config* config, IR_Uniform* ir, const float* const* ir_data, int ir_num_samples, int num_channels, float* fft_scratch, void* data)
+{
+    create_zero_multichannel_ir_preallocated (config, ir, ir_num_samples, num_channels, data);
+    load_multichannel_ir (config, ir, ir_data, ir_num_samples, num_channels, fft_scratch);
+}
+
+void create_zero_multichannel_ir_preallocated (const Config* config, IR_Uniform* ir, int ir_num_samples, int num_channels, void* data)
+{
+    const auto mono_ir_num_segments = get_num_segments (config, ir_num_samples);
+
+    create_zero_ir_num_segments (config, ir, mono_ir_num_segments * num_channels, data);
+    assert (ir->num_segments % num_channels == 0);
+    const auto actual_num_segments = ir->num_segments / num_channels;
+    ir->num_segments = actual_num_segments;
+    ir->max_num_segments = actual_num_segments;
+    ir->num_channels = num_channels;
+}
+
 void load_multichannel_ir (const Config* config, IR_Uniform* ir, const float* const* ir_data, int ir_num_samples, int num_channels, float* fft_scratch)
 {
     assert (num_channels == ir->num_channels);
@@ -162,19 +227,29 @@ void load_multichannel_ir (const Config* config, IR_Uniform* ir, const float* co
 }
 
 //================================================================================================================
-static size_t state_data_bytes_needed (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
+static int state_max_num_segments (int block_size, int ir_num_segments)
+{
+    return block_size > 128 ? ir_num_segments : 3 * ir_num_segments;
+}
+
+static size_t state_data_bytes_needed (int fft_size, int block_size, int num_segments, int num_channels)
 {
     size_t bytes_needed {};
 
-    const auto segment_num_samples = config->fft_size;
-    state->max_num_segments = config->block_size > 128 ? ir->max_num_segments : 3 * ir->max_num_segments;
-    bytes_needed += segment_num_samples * state->max_num_segments * sizeof (float);
+    const auto segment_num_samples = fft_size;
+    const auto max_num_segments = state_max_num_segments (block_size, num_segments);
+    bytes_needed += segment_num_samples * max_num_segments * sizeof (float);
 
-    bytes_needed += config->fft_size * sizeof (float); // input data
-    bytes_needed += config->fft_size * sizeof (float); // output data
-    bytes_needed += config->fft_size * sizeof (float); // output temp data
-    bytes_needed += config->fft_size * sizeof (float); // overlap data
-    return bytes_needed * state->num_channels;
+    bytes_needed += fft_size * sizeof (float); // input data
+    bytes_needed += fft_size * sizeof (float); // output data
+    bytes_needed += fft_size * sizeof (float); // output temp data
+    bytes_needed += fft_size * sizeof (float); // overlap data
+    return bytes_needed * num_channels;
+}
+
+static size_t state_data_bytes_needed (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state, int num_channels)
+{
+    return state_data_bytes_needed (config->fft_size, config->block_size, ir->max_num_segments, num_channels);
 }
 
 static void state_data_partition_memory (const Config* config, Process_Uniform_State* state, Process_Uniform_State::State_Data& state_data, float*& data)
@@ -196,9 +271,44 @@ static void state_data_partition_memory (const Config* config, Process_Uniform_S
 void create_multichannel_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state, int num_channels)
 {
     using State_Data = Process_Uniform_State::State_Data;
+    const auto state_bytes_needed = state_data_bytes_needed (config, ir, state, num_channels);
+    auto* data = fft::aligned_malloc (state_bytes_needed + num_channels * sizeof (State_Data));
+    create_multichannel_process_state_preallocated (config,
+                                                    ir,
+                                                    state,
+                                                    num_channels,
+                                                    data);
+}
+
+void create_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
+{
+    create_multichannel_process_state (config, ir, state, ir->num_channels);
+}
+
+size_t process_state_bytes_required (int fft_size, int block_size, int ir_num_samples)
+{
+    return multichannel_process_state_bytes_required (fft_size, block_size, ir_num_samples, 1);
+}
+
+size_t multichannel_process_state_bytes_required (int fft_size, int block_size, int ir_num_samples, int num_channels)
+{
+    const auto num_segments = get_num_segments (fft_size, block_size, ir_num_samples);
+    return state_data_bytes_needed (fft_size, block_size, num_segments, num_channels)
+           + pad_bytes (sizeof (Process_Uniform_State::State_Data) * num_channels);
+}
+
+void create_process_state_preallocated (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state, void* data)
+{
+    create_multichannel_process_state_preallocated (config, ir, state, ir->num_channels, data);
+}
+
+void create_multichannel_process_state_preallocated (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state, int num_channels, void* data)
+{
+    using State_Data = Process_Uniform_State::State_Data;
     state->num_channels = num_channels;
-    const auto state_bytes_needed = state_data_bytes_needed (config, ir, state);
-    auto* data = fft::aligned_malloc (state_bytes_needed + state->num_channels * sizeof (State_Data));
+    state->max_num_segments = state_max_num_segments (config->block_size, ir->max_num_segments);
+
+    const auto state_bytes_needed = state_data_bytes_needed (config, ir, state, num_channels);
     state->state_data = reinterpret_cast<State_Data*> (static_cast<std::byte*> (data) + state_bytes_needed);
 
     auto* float_data = static_cast<float*> (data);
@@ -207,11 +317,6 @@ void create_multichannel_process_state (const Config* config, const IR_Uniform* 
     assert (static_cast<void*> (float_data) == static_cast<void*> (state->state_data));
 
     reset_process_state (config, state);
-}
-
-void create_process_state (const Config* config, const IR_Uniform* ir, Process_Uniform_State* state)
-{
-    create_multichannel_process_state (config, ir, state, ir->num_channels);
 }
 
 void reset_process_state (const Config* config, Process_Uniform_State* state)
@@ -319,8 +424,11 @@ void create_nuir_process_state (const IR_Non_Uniform* ir, Process_Non_Uniform_St
     state->tail.num_channels = 1; // @TODO
     state->tail_config = ir->tail_config;
 
-    const auto head_state_bytes_needed = state_data_bytes_needed (state->head_config, &ir->head, &state->head);
-    const auto tail_state_bytes_needed = state_data_bytes_needed (state->tail_config, &ir->tail, &state->tail);
+    state->head.max_num_segments = state_max_num_segments (ir->head_config->block_size, ir->head.max_num_segments);
+    state->tail.max_num_segments = state_max_num_segments (ir->tail_config->block_size, ir->tail.max_num_segments);
+
+    const auto head_state_bytes_needed = state_data_bytes_needed (state->head_config, &ir->head, &state->head, 1);
+    const auto tail_state_bytes_needed = state_data_bytes_needed (state->tail_config, &ir->tail, &state->tail, 1);
     auto* data = fft::aligned_malloc (head_state_bytes_needed + tail_state_bytes_needed + 2 * sizeof (State_Data));
     state->head.state_data = reinterpret_cast<State_Data*> (static_cast<std::byte*> (data) + head_state_bytes_needed + tail_state_bytes_needed);
     state->tail.state_data = state->head.state_data + 1;

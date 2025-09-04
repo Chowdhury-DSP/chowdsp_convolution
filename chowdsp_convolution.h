@@ -78,6 +78,9 @@ struct Process_Non_Uniform_State
     const struct Convolution_Config* tail_config;
 };
 
+/** Returns the required FFT size for a given block size. */
+int convolution_fft_size (int max_block_size);
+
 /** Creates a convolution config for a given maximum block size */
 void create_config (struct Convolution_Config*, int max_block_size);
 
@@ -109,6 +112,11 @@ void create_ir (const struct Convolution_Config*, struct IR_Uniform*, const floa
  */
 void create_zero_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples);
 
+// @TODO: docs!
+size_t ir_bytes_required (int max_block_size, int ir_num_samples);
+void create_ir_preallocated (const struct Convolution_Config*, struct IR_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch, void* data);
+void create_zero_ir_preallocated (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, void* data);
+
 /**
  * Loads IR data.
  * `ir_num_samples` must be less than or equal the number of samples
@@ -131,6 +139,11 @@ void create_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform
  */
 void create_zero_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, int num_channels);
 
+// @TODO: docs!
+size_t multichannel_ir_bytes_required (int max_block_size, int ir_num_samples, int num_channels);
+void create_multichannel_ir_preallocated (const struct Convolution_Config*, struct IR_Uniform*, const float* const* ir_data, int ir_num_samples, int num_channels, float* fft_scratch, void* data);
+void create_zero_multichannel_ir_preallocated (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, int num_channels, void* data);
+
 /**
  * Loads IR data.
  * `ir_num_samples` must be less than or equal the number of samples
@@ -152,6 +165,12 @@ void create_process_state (const struct Convolution_Config*, const struct IR_Uni
  * This is useful for convolving a monophonic IR with multiple channels.
  */
 void create_multichannel_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, int num_channels);
+
+// @TODO: docs!
+size_t process_state_bytes_required (int fft_size, int block_size, int ir_num_samples);
+size_t multichannel_process_state_bytes_required (int fft_size, int block_size, int ir_num_samples, int num_channels);
+void create_process_state_preallocated (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, void* data);
+void create_multichannel_process_state_preallocated (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, int num_channels, void* data);
 
 /** Zeros the process state. */
 void reset_process_state (const struct Convolution_Config*, struct Process_Uniform_State*);

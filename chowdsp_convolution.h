@@ -130,7 +130,7 @@ void create_ir (const struct Convolution_Config*, struct IR_Uniform*, const floa
  * Creates a mono IR of a given size.
  * The IR will be filled with zeros.
  *
- * See the requirements for `place_data` in `create_ir()`.
+ * See the requirements for `place_data` for `create_ir()`.
  */
 void create_zero_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, void* place_data
 #ifdef __cplusplus
@@ -157,6 +157,8 @@ size_t multichannel_ir_bytes_required (int max_block_size, int ir_num_samples, i
  * The fft_scratch pointer should point to
  * an array of config->fft_size floats, and should
  * have 64-byte alignment.
+ *
+ * See the requirements for `place_data` for `create_ir()`.
  */
 void create_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* const* ir, int ir_num_samples, int num_channels, float* fft_scratch, void* place_data
 #ifdef __cplusplus
@@ -167,6 +169,8 @@ void create_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform
 /**
  * Creates a multi-channel IR of a given size.
  * The IR will be filled with zeros.
+ *
+ * See the requirements for `place_data` for `create_ir()`.
  */
 void create_zero_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, int num_channels, void* place_data
 #ifdef __cplusplus
@@ -193,6 +197,10 @@ size_t process_state_bytes_required (int max_block_size, int ir_num_samples);
 /**
  * Creates a process state object for a given IR.
  * The process state will be created to process the same number of channels as the IR contains.
+ *
+ * If `place_data` is provided, the state will be constructed in-place.
+ * Otherwise, memory will be allocated, and the user must call `destroy_process_state()`
+ * to free that memory. `place_data` should be aligned to 64 bytes.
  */
 void create_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, void* place_data
 #ifdef __cplusplus
@@ -209,6 +217,8 @@ size_t multichannel_process_state_bytes_required (int max_block_size, int ir_num
 /**
  * Creates a process state object for a given IR, with a specific number of channels.
  * This is useful for convolving a monophonic IR with multiple channels.
+ *
+ * See the requirements for `place_data` for `create_process_state()`.
  */
 void create_multichannel_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, int num_channels, void* place_data
 #ifdef __cplusplus

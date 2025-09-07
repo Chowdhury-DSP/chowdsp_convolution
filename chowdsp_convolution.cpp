@@ -1,6 +1,5 @@
 #include "chowdsp_convolution.h"
 
-#include <algorithm>
 #include <cassert>
 #include <cstring>
 
@@ -8,6 +7,16 @@
 
 namespace chowdsp::convolution
 {
+static int min_int (int a, int b)
+{
+    return (b < a) ? b : a;
+}
+
+static int max_int (int a, int b)
+{
+    return (b > a) ? b : a;
+}
+
 static int next_pow2 (int v) noexcept
 {
     --v;
@@ -33,22 +42,22 @@ static int pad_bytes (int N)
     return N_div * pad_len;
 }
 
-static auto get_block_and_fft_sizes (int max_block_size)
+static void get_block_and_fft_sizes (int max_block_size, int& block_size, int& fft_size)
 {
-    const auto block_size = next_pow2 (max_block_size);
-    const auto fft_size = block_size > 128 ? 2 * block_size : 4 * block_size;
-    return std::make_tuple (block_size, fft_size);
+    block_size = next_pow2 (max_block_size);
+    fft_size = block_size > 128 ? 2 * block_size : 4 * block_size;
 }
 
 int convolution_fft_size (int max_block_size)
 {
-    [[maybe_unused]] const auto [block_size, fft_size] = get_block_and_fft_sizes (max_block_size);
+    [[maybe_unused]] int block_size, fft_size;
+    get_block_and_fft_sizes (max_block_size, block_size, fft_size);
     return fft_size;
 }
 
 void create_config (Config* config, int max_block_size, void* data)
 {
-    std::tie (config->block_size, config->fft_size) = get_block_and_fft_sizes (max_block_size);
+    get_block_and_fft_sizes (max_block_size, config->block_size, config->fft_size);
     if (data == nullptr)
         config->fft = fft::fft_new_setup (config->fft_size, fft::FFT_REAL);
     else
@@ -57,7 +66,7 @@ void create_config (Config* config, int max_block_size, void* data)
 
 size_t config_bytes_required (int max_block_size)
 {
-    const auto [block_size, fft_size] = get_block_and_fft_sizes (max_block_size);
+    const auto fft_size = convolution_fft_size (max_block_size);
     return fft::fft_bytes_required (fft_size, fft::FFT_REAL);
 }
 
@@ -109,7 +118,8 @@ static void create_zero_ir_num_segments (const Config* config, IR_Uniform* ir, i
 
 size_t ir_bytes_required (int max_block_size, int ir_num_samples)
 {
-    const auto [block_size, fft_size] = get_block_and_fft_sizes (max_block_size);
+    int block_size, fft_size;
+    get_block_and_fft_sizes (max_block_size, block_size, fft_size);
     const auto num_segments = get_num_segments (fft_size, block_size, ir_num_samples);
     const auto segment_num_samples = fft_size;
     return segment_num_samples * num_segments * sizeof (float);
@@ -133,7 +143,7 @@ void load_ir (const Config* config, IR_Uniform* ir, const float* ir_data, int ir
     for (int seg_idx = 0; seg_idx < ir->num_segments; ++seg_idx)
     {
         float* segment = get_segment (config, ir->segments, seg_idx);
-        const auto segment_n = std::min (config->fft_size - config->block_size, ir_num_samples - current_ptr);
+        const auto segment_n = min_int (config->fft_size - config->block_size, ir_num_samples - current_ptr);
         memcpy (segment, ir_data + current_ptr, segment_n * sizeof (float));
         memset (segment + segment_n, 0, (config->fft_size - segment_n) * sizeof (float));
         fft::fft_transform_unordered (config->fft,
@@ -232,7 +242,8 @@ static void state_data_partition_memory (const Config* config, Process_Uniform_S
 
 size_t multichannel_process_state_bytes_required (int max_block_size, int ir_num_samples, int num_channels)
 {
-    const auto [block_size, fft_size] = get_block_and_fft_sizes (max_block_size);
+    int block_size, fft_size;
+    get_block_and_fft_sizes (max_block_size, block_size, fft_size);
     const auto ir_num_segments = get_num_segments (fft_size, block_size, ir_num_samples);
     return state_data_bytes_needed (fft_size, block_size, ir_num_segments, num_channels)
            + pad_bytes (sizeof (Process_Uniform_State::State_Data) * num_channels);
@@ -311,8 +322,8 @@ int get_required_nuir_scratch_bytes (const IR_Non_Uniform* ir)
 {
     assert (ir->head_config != nullptr);
     assert (ir->tail_config != nullptr);
-    return static_cast<int> ((std::max (ir->head_config->fft_size,
-                                        ir->tail_config->fft_size)
+    return static_cast<int> ((max_int (ir->head_config->fft_size,
+                                       ir->tail_config->fft_size)
                               + pad_floats (ir->head_config->block_size))
                              * sizeof (float));
 }
@@ -352,8 +363,8 @@ void create_zero_nuir (IR_Non_Uniform* ir, int ir_num_samples)
 
 void load_nuir (IR_Non_Uniform* ir, const float* ir_data, int ir_num_samples, float* fft_scratch)
 {
-    load_ir (ir->head_config, &ir->head, ir_data, std::min (ir_num_samples, ir->head_size), fft_scratch);
-    load_ir (ir->tail_config, &ir->tail, ir_data + ir->head_size, std::max (ir_num_samples - ir->head_size, 0), fft_scratch);
+    load_ir (ir->head_config, &ir->head, ir_data, min_int (ir_num_samples, ir->head_size), fft_scratch);
+    load_ir (ir->tail_config, &ir->tail, ir_data + ir->head_size, max_int (ir_num_samples - ir->head_size, 0), fft_scratch);
 }
 
 void destroy_nuir (IR_Non_Uniform* ir)
@@ -428,8 +439,8 @@ static void process_samples_mono (const Config* config,
     while (num_samples_processed < num_samples)
     {
         const auto input_data_was_empty = state->input_data_pos == 0;
-        const auto samples_to_process = std::min (num_samples - num_samples_processed,
-                                                  config->block_size - state->input_data_pos);
+        const auto samples_to_process = min_int (num_samples - num_samples_processed,
+                                                 config->block_size - state->input_data_pos);
 
         memcpy (state_data->input_data + state->input_data_pos,
                 input + num_samples_processed,
@@ -560,8 +571,8 @@ static void process_samples_with_latency_mono (const Config* config,
     int num_samples_processed = 0;
     while (num_samples_processed < num_samples)
     {
-        const auto samples_to_process = std::min (num_samples - num_samples_processed,
-                                                  config->block_size - state->input_data_pos);
+        const auto samples_to_process = min_int (num_samples - num_samples_processed,
+                                                 config->block_size - state->input_data_pos);
 
         memcpy (state_data->input_data + state->input_data_pos,
                 input + num_samples_processed,

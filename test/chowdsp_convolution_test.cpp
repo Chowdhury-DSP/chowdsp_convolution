@@ -7,6 +7,7 @@
 #include <chowdsp_convolution.h>
 #include <chowdsp_fft.h>
 
+#include <chowdsp_data_structures/chowdsp_data_structures.h>
 #include <chowdsp_buffers/chowdsp_buffers.h>
 #include <chowdsp_buffers/Buffers/chowdsp_Buffer.cpp> // NOLINT
 template class chowdsp::Buffer<float, 32>;
@@ -323,7 +324,7 @@ std::vector<float> generate (size_t N, std::mt19937& rng)
     return data;
 }
 
-static bool test_convolution (int ir_length_samples, int block_size, int num_blocks, bool latency)
+static bool test_convolution (int ir_length_samples, int block_size, int num_blocks, bool latency, bool preallocate)
 {
     std::cout << "Running test with IR length: " << ir_length_samples
               << ", block size: " << block_size
@@ -350,10 +351,21 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     std::cout << "  juce::dsp::Convolution: " << ref_duration_seconds << " seconds" << std::endl;
 
     std::vector<float> test_output (input.size());
+
+    const auto fft_size = chowdsp::convolution::convolution_fft_size (block_size);
+    const auto config_bytes = chowdsp::convolution::config_bytes_required (block_size);
+    const auto ir_bytes = chowdsp::convolution::ir_bytes_required (block_size, (int) ir.size());
+    const auto state_bytes = chowdsp::convolution::process_state_bytes_required (block_size, (int) ir.size());
+    size_t bytes_needed = config_bytes // config
+                          + fft_size * sizeof (float) // fft scratch
+                          + ir_bytes // ir
+                          + state_bytes; // state
+    chowdsp::ArenaAllocator<> arena { bytes_needed + 64 };
+
     chowdsp::convolution::Config conv_config {};
     chowdsp::convolution::destroy_config (&conv_config); // destroying an empty config should be okay...
-    chowdsp::convolution::create_config (&conv_config, block_size);
-    auto* fft_scratch = (float*) chowdsp::fft::aligned_malloc (conv_config.fft_size * sizeof (float));
+    chowdsp::convolution::create_config (&conv_config, block_size, preallocate ? arena.allocate_bytes (config_bytes, 64) : nullptr);
+    auto* fft_scratch = arena.allocate<float> (conv_config.fft_size, 64);
 
     chowdsp::convolution::IR_Uniform conv_ir {};
     chowdsp::convolution::destroy_ir (&conv_ir); // destroying an empty IR should be okay...
@@ -361,11 +373,12 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
                                      &conv_ir,
                                      ir.data(),
                                      (int) ir.size(),
-                                     fft_scratch);
+                                     fft_scratch,
+                                     preallocate ? arena.allocate_bytes (ir_bytes, 64) : nullptr);
 
     chowdsp::convolution::Process_Uniform_State conv_state {};
     chowdsp::convolution::destroy_process_state (&conv_state); // destroying an empty state should be okay...
-    chowdsp::convolution::create_process_state (&conv_config, &conv_ir, &conv_state);
+    chowdsp::convolution::create_process_state (&conv_config, &conv_ir, &conv_state, preallocate ? arena.allocate_bytes (state_bytes, 64) : nullptr);
 
     start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_blocks; ++i)
@@ -399,10 +412,12 @@ static bool test_convolution (int ir_length_samples, int block_size, int num_blo
     std::cout << "  chowdsp_convolution: " << test_duration_seconds << " seconds" << std::endl;
     std::cout << "  chowdsp is " << ref_duration_seconds / test_duration_seconds << "x faster\n";
 
-    chowdsp::fft::aligned_free (fft_scratch);
-    chowdsp::convolution::destroy_ir (&conv_ir);
-    chowdsp::convolution::destroy_process_state (&conv_state);
-    chowdsp::convolution::destroy_config (&conv_config);
+    if (! preallocate)
+    {
+        chowdsp::convolution::destroy_process_state (&conv_state);
+        chowdsp::convolution::destroy_ir (&conv_ir);
+        chowdsp::convolution::destroy_config (&conv_config);
+    }
 
     float error_accum {};
     float max_error {};
@@ -426,7 +441,8 @@ static bool test_convolution_multi_channel (int ir_length_samples,
                                             int num_blocks,
                                             bool latency,
                                             int num_channels,
-                                            bool mono_ir)
+                                            bool mono_ir,
+                                            bool preallocate)
 {
     std::cout << "Running test with IR length: " << ir_length_samples
               << ", block size: " << block_size
@@ -462,9 +478,20 @@ static bool test_convolution_multi_channel (int ir_length_samples,
     std::vector<const float*> test_input { (size_t) num_channels, nullptr };
     std::vector<float*> test_output { (size_t) num_channels, nullptr };
 
+    const auto fft_size = chowdsp::convolution::convolution_fft_size (block_size);
+    const auto config_bytes = chowdsp::convolution::config_bytes_required (block_size);
+    const auto ir_bytes = mono_ir ? chowdsp::convolution::ir_bytes_required (block_size, (int) ir.size())
+                                  : chowdsp::convolution::multichannel_ir_bytes_required (block_size, (int) ir.size(), num_channels);
+    const auto state_bytes = chowdsp::convolution::multichannel_process_state_bytes_required (block_size, (int) ir.size(), num_channels);
+    size_t bytes_needed = config_bytes // config
+                          + fft_size * sizeof (float) // fft scratch
+                          + ir_bytes // ir
+                          + state_bytes; // state
+    chowdsp::ArenaAllocator<> arena { bytes_needed + 64 };
+
     chowdsp::convolution::Config conv_config {};
-    chowdsp::convolution::create_config (&conv_config, block_size);
-    auto* fft_scratch = (float*) chowdsp::fft::aligned_malloc (conv_config.fft_size * sizeof (float));
+    chowdsp::convolution::create_config (&conv_config, block_size, preallocate ? arena.allocate_bytes (config_bytes, 64) : nullptr);
+    auto* fft_scratch = arena.allocate<float> (conv_config.fft_size, 64);
 
     chowdsp::convolution::IR_Uniform conv_ir {};
     if (mono_ir)
@@ -473,7 +500,8 @@ static bool test_convolution_multi_channel (int ir_length_samples,
                                          &conv_ir,
                                          ir.data(),
                                          ir_length_samples,
-                                         fft_scratch);
+                                         fft_scratch,
+                                         preallocate ? arena.allocate_bytes (ir_bytes, 64) : nullptr);
     }
     else
     {
@@ -482,11 +510,12 @@ static bool test_convolution_multi_channel (int ir_length_samples,
                                                       multi_channel_ir.data(),
                                                       ir_length_samples,
                                                       num_channels,
-                                                      fft_scratch);
+                                                      fft_scratch,
+                                                      preallocate ? arena.allocate_bytes (ir_bytes, 64) : nullptr);
     }
 
     chowdsp::convolution::Process_Uniform_State conv_state {};
-    chowdsp::convolution::create_multichannel_process_state (&conv_config, &conv_ir, &conv_state, num_channels);
+    chowdsp::convolution::create_multichannel_process_state (&conv_config, &conv_ir, &conv_state, num_channels, preallocate ? arena.allocate_bytes (state_bytes, 64) : nullptr);
 
     start = std::chrono::high_resolution_clock::now();
     for (int i = 0; i < num_blocks; ++i)
@@ -526,10 +555,12 @@ static bool test_convolution_multi_channel (int ir_length_samples,
     std::cout << "  chowdsp_convolution: " << test_duration_seconds << " seconds" << std::endl;
     std::cout << "  chowdsp is " << ref_duration_seconds / test_duration_seconds << "x faster\n";
 
-    chowdsp::fft::aligned_free (fft_scratch);
-    chowdsp::convolution::destroy_ir (&conv_ir);
-    chowdsp::convolution::destroy_process_state (&conv_state);
-    chowdsp::convolution::destroy_config (&conv_config);
+    if (! preallocate)
+    {
+        chowdsp::convolution::destroy_ir (&conv_ir);
+        chowdsp::convolution::destroy_process_state (&conv_state);
+        chowdsp::convolution::destroy_config (&conv_config);
+    }
 
     float error_accum {};
     float max_error {};
@@ -639,21 +670,24 @@ static bool test_convolution_non_uniform (int ir_length_samples, int block_size,
 int main()
 {
     auto success = true;
-    for (bool latency : { false, true })
+    for (bool preallocate : { false, true })
     {
-        success &= test_convolution (6000, 2048, 4, latency);
-        success &= test_convolution (6000, 512, 20, latency);
-        success &= test_convolution (6000, 511, 20, latency);
-        success &= test_convolution (6000, 32, 400, latency);
-        success &= test_convolution (100, 2048, 2, latency);
-        success &= test_convolution (100, 512, 4, latency);
-        success &= test_convolution (100, 511, 4, latency);
-        success &= test_convolution (100, 32, 10, latency);
+        for (bool latency : { false, true })
+        {
+            success &= test_convolution (6000, 2048, 4, latency, preallocate);
+            success &= test_convolution (6000, 512, 20, latency, preallocate);
+            success &= test_convolution (6000, 511, 20, latency, preallocate);
+            success &= test_convolution (6000, 32, 400, latency, preallocate);
+            success &= test_convolution (100, 2048, 2, latency, preallocate);
+            success &= test_convolution (100, 512, 4, latency, preallocate);
+            success &= test_convolution (100, 511, 4, latency, preallocate);
+            success &= test_convolution (100, 32, 10, latency, preallocate);
 
-        success &= test_convolution_multi_channel (6000, 2048, 4, latency, 2, false);
-        success &= test_convolution_multi_channel (100, 32, 10, latency, 4, false);
-        success &= test_convolution_multi_channel (6000, 512, 4, latency, 2, true);
-        success &= test_convolution_multi_channel (100, 511, 10, latency, 4, true);
+            success &= test_convolution_multi_channel (6000, 2048, 4, latency, 2, false, preallocate);
+            success &= test_convolution_multi_channel (100, 32, 10, latency, 4, false, preallocate);
+            success &= test_convolution_multi_channel (6000, 512, 4, latency, 2, true, preallocate);
+            success &= test_convolution_multi_channel (100, 511, 10, latency, 4, true, preallocate);
+        }
     }
 
     success &= test_convolution_non_uniform (6000, 2048, 4, 2048);
@@ -663,8 +697,8 @@ int main()
     success &= test_convolution_non_uniform (200, 32, 10, 64);
 
     std::cout << "Speed comparisons:\n";
-    success &= test_convolution (48'000, 512, 10'000, false);
-    success &= test_convolution (48'000, 512, 10'000, true);
+    success &= test_convolution (48'000, 512, 10'000, false, true);
+    success &= test_convolution (48'000, 512, 10'000, true, true);
     success &= test_convolution_non_uniform (48'000, 512, 10'000, 2048);
 
     return success ? 0 : 1;

@@ -1,10 +1,15 @@
 #pragma once
 
 #ifdef __cplusplus
+#include <cstddef>
+
 extern "C"
 {
 namespace chowdsp::convolution
 {
+#else
+#include <stddef.h>
+#include <stdbool.h>
 #endif
 
 /**
@@ -40,8 +45,7 @@ struct Process_Uniform_State
         float* output_data;
         float* output_temp_data;
         float* overlap_data;
-    };
-    struct State_Data* state_data;
+    }* state_data;
     int max_num_segments;
     int current_segment;
     int input_data_pos;
@@ -74,11 +78,36 @@ struct Process_Non_Uniform_State
     const struct Convolution_Config* tail_config;
 };
 
-/** Creates a convolution config for a given maximum block size */
-void create_config (struct Convolution_Config*, int max_block_size);
+/** Returns the required FFT size for a given block size. */
+int convolution_fft_size (int max_block_size);
+
+/** The number of bytes required for `create_config()` with in-place construction. */
+size_t config_bytes_required (int max_block_size);
+
+/**
+ * Creates a convolution config for a given maximum block size.
+ * If no `place_data` pointer is provided, the config will allocate
+ * its own memory, and the user must call `destroy_config()` to free
+ * that memory. If a `place_data` pointer is provided, the config will
+ * be constructed in-place, using the provided memory, and the user is
+ * responsible for managing that memory themselves. The `place_data` pointer
+ * must provide the number of bytes determined by `config_bytes_required()`,
+ * and should be aligned to 64 bytes.
+ */
+void create_config (struct Convolution_Config*, int max_block_size, void* place_data
+#ifdef __cplusplus
+     = nullptr
+#endif
+);
 
 /** De-allocates the config's internal data. */
 void destroy_config (struct Convolution_Config*);
+
+/**
+ * Returns the number of bytes required to call `create_ir()`
+ * or `create_zero_ir()` with `place_data`.
+ */
+size_t ir_bytes_required (int max_block_size, int ir_num_samples);
 
 /**
  * Creates a monophonic IR.
@@ -86,14 +115,28 @@ void destroy_config (struct Convolution_Config*);
  * The fft_scratch pointer should point to
  * an array of config->fft_size floats, and should
  * have 64-byte alignment.
+ *
+ * If `place_data` is provided, the IR will be constructed in-place.
+ * Otherwise, memory will be allocated, and the user must call `destroy_ir()`
+ * to free that memory. `place_data` should be aligned to 64 bytes.
  */
-void create_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch);
+void create_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch, void* place_data
+#ifdef __cplusplus
+     = nullptr
+#endif
+);
 
 /**
  * Creates a mono IR of a given size.
  * The IR will be filled with zeros.
+ *
+ * See the requirements for `place_data` for `create_ir()`.
  */
-void create_zero_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples);
+void create_zero_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, void* place_data
+#ifdef __cplusplus
+     = nullptr
+#endif
+);
 
 /**
  * Loads IR data.
@@ -103,19 +146,37 @@ void create_zero_ir (const struct Convolution_Config*, struct IR_Uniform*, int i
 void load_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* ir, int ir_num_samples, float* fft_scratch);
 
 /**
+ * Returns the number of bytes required to call `create_multichannel_ir()`
+ * or `create_zero_multichannel_ir()` with `place_data`.
+ */
+size_t multichannel_ir_bytes_required (int max_block_size, int ir_num_samples, int num_channels);
+
+/**
  * Creates a multi-channel uniform-partitioned IR.
  *
  * The fft_scratch pointer should point to
  * an array of config->fft_size floats, and should
  * have 64-byte alignment.
+ *
+ * See the requirements for `place_data` for `create_ir()`.
  */
-void create_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* const* ir, int ir_num_samples, int num_channels, float* fft_scratch);
+void create_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, const float* const* ir, int ir_num_samples, int num_channels, float* fft_scratch, void* place_data
+#ifdef __cplusplus
+     = nullptr
+#endif
+);
 
 /**
  * Creates a multi-channel IR of a given size.
  * The IR will be filled with zeros.
+ *
+ * See the requirements for `place_data` for `create_ir()`.
  */
-void create_zero_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, int num_channels);
+void create_zero_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*, int ir_num_samples, int num_channels, void* place_data
+#ifdef __cplusplus
+     = nullptr
+#endif
+);
 
 /**
  * Loads IR data.
@@ -128,16 +189,42 @@ void load_multichannel_ir (const struct Convolution_Config*, struct IR_Uniform*,
 void destroy_ir (struct IR_Uniform*);
 
 /**
+ * Returns the number of bytes required to call `create_process_state()`
+ * with `place_data`.
+ */
+size_t process_state_bytes_required (int max_block_size, int ir_num_samples);
+
+/**
  * Creates a process state object for a given IR.
  * The process state will be created to process the same number of channels as the IR contains.
+ *
+ * If `place_data` is provided, the state will be constructed in-place.
+ * Otherwise, memory will be allocated, and the user must call `destroy_process_state()`
+ * to free that memory. `place_data` should be aligned to 64 bytes.
  */
-void create_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*);
+void create_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, void* place_data
+#ifdef __cplusplus
+     = nullptr
+#endif
+);
+
+/**
+ * Returns the number of bytes required to call
+ * `create_multichannel_process_state()` with `place_data`.
+ */
+size_t multichannel_process_state_bytes_required (int max_block_size, int ir_num_samples, int num_channels);
 
 /**
  * Creates a process state object for a given IR, with a specific number of channels.
  * This is useful for convolving a monophonic IR with multiple channels.
+ *
+ * See the requirements for `place_data` for `create_process_state()`.
  */
-void create_multichannel_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, int num_channels);
+void create_multichannel_process_state (const struct Convolution_Config*, const struct IR_Uniform*, struct Process_Uniform_State*, int num_channels, void* place_data
+#ifdef __cplusplus
+     = nullptr
+#endif
+);
 
 /** Zeros the process state. */
 void reset_process_state (const struct Convolution_Config*, struct Process_Uniform_State*);

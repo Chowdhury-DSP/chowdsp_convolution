@@ -4,5 +4,6 @@ build*/
 *.raddbg_project
 .vscode/
 .idea/
+.zed/
 
 .DS_Store

@@ -19,6 +19,7 @@ target_link_libraries(chowdsp_convolution_test
     juce::juce_audio_basics
     juce::juce_audio_formats
     chowdsp::chowdsp_buffers
+    chowdsp::chowdsp_data_structures
     chowdsp_fft_juce
     chowdsp_convolution
 )

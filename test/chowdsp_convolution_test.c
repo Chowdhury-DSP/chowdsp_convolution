@@ -12,7 +12,7 @@ int main()
     // setup config
     const int block_size = 512;
     struct Convolution_Config conv_config;
-    create_config (&conv_config, block_size);
+    create_config (&conv_config, block_size, NULL);
     float* fft_scratch = (float*) aligned_malloc (conv_config.fft_size * sizeof (float));
 
     // load IR (ideal impulse with delay)
@@ -21,12 +21,12 @@ int main()
     float* ir = (float*) calloc(ir_size, sizeof (float));
     ir[delay_samples] = 1.0f;
     struct IR_Uniform conv_ir;
-    create_ir (&conv_config, &conv_ir, ir, ir_size, fft_scratch);
+    create_ir (&conv_config, &conv_ir, ir, ir_size, fft_scratch, NULL);
     free (ir);
 
     // set up process state
     struct Process_Uniform_State conv_state;
-    create_process_state(&conv_config, &conv_ir, &conv_state);
+    create_process_state(&conv_config, &conv_ir, &conv_state, NULL);
 
     // set up i/o buffers
     const int num_blocks = 1000;
